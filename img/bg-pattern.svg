@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320" viewBox="0 0 320 320">
+  <!-- 독서 현황판 배경 무늬 (이 프로젝트를 위해 직접 그린 그림, 자유롭게 사용 가능) -->
+  <g fill="none" stroke="#e2c49b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+    <!-- 펼친 책 -->
+    <g transform="translate(28 34)">
+      <path d="M0 8 Q16 0 32 8 Q48 0 64 8 V44 Q48 36 32 44 Q16 36 0 44 Z"/>
+      <path d="M32 8 V44"/>
+      <path d="M8 16 Q16 13 24 16 M8 24 Q16 21 24 24 M40 16 Q48 13 56 16 M40 24 Q48 21 56 24"/>
+    </g>
+    <!-- 잎사귀 -->
+    <g transform="translate(200 30) rotate(20)">
+      <path d="M0 40 Q4 8 34 0 Q34 30 0 40 Z"/>
+      <path d="M0 40 L24 12"/>
+    </g>
+    <!-- 머그컵 -->
+    <g transform="translate(130 120)">
+      <path d="M0 10 H34 V34 Q34 44 24 44 H10 Q0 44 0 34 Z"/>
+      <path d="M34 16 Q46 16 46 26 Q46 34 34 34"/>
+      <path d="M10 0 Q6 4 10 8 M20 -2 Q16 3 20 8"/>
+    </g>
+    <!-- 쌓인 책 -->
+    <g transform="translate(236 150)">
+      <rect x="0" y="0" width="52" height="12" rx="2"/>
+      <rect x="6" y="12" width="46" height="12" rx="2"/>
+      <rect x="-2" y="24" width="56" height="12" rx="2"/>
+      <path d="M10 0 V12 M16 12 V24 M8 24 V36"/>
+    </g>
+    <!-- 책갈피 -->
+    <g transform="translate(46 190)">
+      <path d="M0 0 H18 V40 L9 32 L0 40 Z"/>
+    </g>
+    <!-- 하트 -->
+    <path transform="translate(120 250)" d="M12 22 C-6 10 2 -4 12 4 C22 -4 30 10 12 22 Z"/>
+    <!-- 연필 -->
+    <g transform="translate(250 250) rotate(-35)">
+      <path d="M0 0 H40 L50 6 L40 12 H0 Z M40 0 V12"/>
+    </g>
+  </g>
+  <g fill="#e8cfab" opacity="0.6">
+    <!-- 반짝이 -->
+    <path transform="translate(150 40)" d="M8 0 L10 6 L16 8 L10 10 L8 16 L6 10 L0 8 L6 6 Z"/>
+    <path transform="translate(80 128) scale(.7)" d="M8 0 L10 6 L16 8 L10 10 L8 16 L6 10 L0 8 L6 6 Z"/>
+    <path transform="translate(290 96) scale(.6)" d="M8 0 L10 6 L16 8 L10 10 L8 16 L6 10 L0 8 L6 6 Z"/>
+    <circle cx="200" cy="230" r="3"/><circle cx="20" cy="140" r="2.5"/><circle cx="300" cy="300" r="2"/>
+    <circle cx="96" cy="300" r="2.5"/><circle cx="180" cy="300" r="2"/>
+  </g>
+</svg>

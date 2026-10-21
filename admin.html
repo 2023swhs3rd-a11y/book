@@ -45,8 +45,8 @@
         <label>검색어
           <input name="q" type="search" placeholder="이름, 닉네임, 책, 저자, 내용">
         </label>
-        <label>학번 (앞자리)
-          <input name="sno" inputmode="numeric" placeholder="예: 203 → 2학년 3반">
+        <label>학번/부서 (앞부분)
+          <input name="sno" placeholder="예: 203 → 2학년 3반">
         </label>
         <label>작성일 (부터)
           <input name="from" type="date">
@@ -59,6 +59,13 @@
             <option value="all">전체</option>
             <option value="shown">게시 중</option>
             <option value="hidden">숨김</option>
+          </select>
+        </label>
+        <label>구분
+          <select name="role">
+            <option value="all">전체</option>
+            <option value="student">학생</option>
+            <option value="teacher">교사</option>
           </select>
         </label>
         <label>정렬
@@ -86,7 +93,7 @@
         <table class="admin-table">
           <thead>
             <tr>
-              <th>학번</th><th>이름</th><th>닉네임</th><th>책 (최근)</th>
+              <th>학번/부서</th><th>이름</th><th>닉네임</th><th>책 (최근)</th>
               <th>글 수</th><th>처음 작성</th><th>최근 활동</th><th>상태</th><th>관리</th>
             </tr>
           </thead>

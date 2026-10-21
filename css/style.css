@@ -17,7 +17,12 @@
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  background: var(--paper);
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(1200px 600px at 10% -10%, rgba(255, 214, 165, .45), transparent 60%),
+    radial-gradient(900px 500px at 110% 10%, rgba(255, 190, 150, .25), transparent 60%),
+    url("../img/bg-pattern.svg");
+  background-attachment: fixed, fixed, scroll;
   color: var(--ink);
   font-family: var(--font);
   font-size: 15px;
@@ -155,6 +160,17 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px; }
   display: flex; align-items: center; gap: 8px;
   margin-top: 16px; padding-left: 8px; font-size: 13px; color: var(--muted);
 }
+.ident { flex: 1; min-width: 0; line-height: 1.35; }
+.ident-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; }
+.ident-line > span + span::before { content: "·"; margin-right: 6px; color: #c9bba8; font-weight: 400; }
+.ident-line > .role-chip + span::before { content: none; }
+.ident .sno { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.ident .nick { color: var(--tone, var(--muted)); font-weight: 600; }
+.ident time { font-size: 12px; }
+.role-chip {
+  background: #b5532f; color: #fff; font-size: 11.5px; font-weight: 800;
+  padding: 1px 8px; border-radius: 999px; margin-right: 2px; align-self: center;
+}
 .post:not(.has-more) .who { margin-top: 18px; }
 .avatar {
   width: 30px; height: 30px; border-radius: 50%; flex: none;
@@ -162,6 +178,71 @@ main { max-width: 1400px; margin: 0 auto; padding: 24px; }
   background: var(--bd); color: #fff; font-weight: 800; font-size: 14px;
 }
 .who .name { font-weight: 700; color: var(--ink); font-size: 14px; }
+
+/* 예시 말풍선 */
+.post.example .bubble.main { outline: 2px dashed rgba(122, 111, 99, .45); outline-offset: 4px; }
+.example-tag {
+  position: absolute; top: -12px; left: 14px;
+  background: var(--ink); color: #fff; border-radius: 999px;
+  font-size: 12px; font-weight: 800; padding: 1px 10px;
+}
+.post.example .link-btn { opacity: .6; }
+
+/* 예시 화면 */
+.demo-btn { background: #fff4df; border-color: #ecd3ac; }
+.demo-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  background: #fff1d6; border: 1px solid #efcf98; border-radius: 16px;
+  padding: 12px 16px; margin-bottom: 24px; font-size: 14px;
+}
+body.demo-mode .fab, body.demo-mode #newBtn { opacity: .5; }
+
+/* ===== 선생님 말풍선: 편지지 모양 · 고정 색 ===== */
+.post.teacher {
+  --bg: #fffaf0; --bd: #c8955f; --tone: #8a4b1f;
+}
+.post.teacher .bubble.main {
+  border: 2px solid var(--bd);
+  border-radius: 10px 26px 10px 26px;
+  padding-top: 28px;
+  background: var(--bg);
+  box-shadow: 0 2px 0 #e9d3b4, 0 10px 22px -10px rgba(120, 70, 20, .45);
+}
+.post.teacher .bubble.main::after { border-right: 2px solid var(--bd); border-bottom: 2px solid var(--bd); bottom: -12px; }
+.post.teacher.has-more .bubble.main { box-shadow: 6px 6px 0 -2px var(--bg), 6px 6px 0 0 var(--bd), 0 10px 22px -10px rgba(120, 70, 20, .45); }
+/* 편지지 줄: 글줄마다 아래에 밑줄이 생깁니다 */
+.post.teacher .quote {
+  line-height: 28px;
+  background: repeating-linear-gradient(transparent 0 26px, rgba(200, 149, 95, .35) 26px 27px, transparent 27px 28px);
+}
+@media (max-width: 640px) { .post.teacher .quote { line-height: 30px; background-size: 100% 30px;
+  background-image: repeating-linear-gradient(transparent 0 28px, rgba(200, 149, 95, .35) 28px 29px, transparent 29px 30px); } }
+.post.teacher .avatar { background: #fbe3cf; border: 2px solid var(--bd); font-size: 15px; }
+.teacher-tag {
+  position: absolute; top: -13px; left: 16px;
+  background: #b5532f; color: #fff; border-radius: 6px 6px 6px 0;
+  font-size: 12px; font-weight: 800; padding: 2px 10px;
+  box-shadow: 0 2px 0 #8a3a1e;
+}
+dialog.sheet.teacher .sheet-head { background: #fff1de; }
+
+/* 학생/교사 선택 */
+.role-toggle {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+  background: #f6eee2; border-radius: 14px; padding: 4px; margin-bottom: 12px;
+}
+.sheet .role-toggle label { margin: 0; cursor: pointer; }
+.role-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.role-toggle span {
+  display: block; text-align: center; padding: 9px; border-radius: 10px;
+  font-weight: 700; color: var(--muted); font-size: 15px;
+}
+.role-toggle input:checked + span { background: #fff; color: var(--ink); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.role-toggle input[value="teacher"]:checked + span { background: #b5532f; color: #fff; }
+.role-toggle input:focus-visible + span { outline: 2px solid var(--accent); }
+.teacher-note { display: none; background: #fff1de; border: 1px solid #ecc99b; border-radius: 12px; padding: 10px 12px; font-size: 13.5px; }
+form.is-teacher .color-field { display: none; }
+form.is-teacher .teacher-note { display: block; }
 
 /* 글쓰기 버튼 (모바일) */
 .fab {
@@ -241,6 +322,8 @@ legend { font-weight: 800; font-size: 14px; color: var(--accent); margin-bottom:
   .brand-icon { font-size: 26px; }
   .brand h1 { font-size: 20px; }
   .search input { width: 100%; font-size: 16px; }
+  .toolbar { display: grid; grid-template-columns: 1fr auto; }
+  .demo-btn { padding: 10px 14px; }
   main { padding: 18px 16px 110px; }
 
   .search { display: block; }

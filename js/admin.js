@@ -92,12 +92,14 @@
     const from = dayStart(f.from.value);
     const to = dayStart(f.to.value);
     const state = f.state.value;
+    const role = f.role.value;
 
     const list = [];
     for (const p of posts) {
       if (state === "shown" && p.hidden) continue;
       if (state === "hidden" && !p.hidden) continue;
-      if (sno && !p.student_no.startsWith(sno)) continue;
+      if (role !== "all" && (p.role || "student") !== role) continue;
+      if (sno && !(p.student_no || "").startsWith(sno)) continue;
       const entries = (p.entries || []).filter((e) => inRange(e, from, to));
       if (!entries.length) continue;
       if (q) {
@@ -117,11 +119,12 @@
   // ---------- 그리기 ----------
   function renderStats() {
     const entries = posts.reduce((n, p) => n + (p.entries || []).length, 0);
-    const students = new Set(posts.map((p) => p.student_no)).size;
+    const students = new Set(posts.filter((p) => p.role !== "teacher").map((p) => p.student_no)).size;
+    const teachers = posts.filter((p) => p.role === "teacher").length;
     const books = new Set(posts.flatMap((p) => (p.entries || []).map((e) => e.book_title.replace(/\s/g, "")))).size;
     const hidden = posts.filter((p) => p.hidden).length;
     $("#stats").replaceChildren(
-      ...[["게시물", posts.length], ["전체 글(이어쓰기 포함)", entries], ["참여 학생", students],
+      ...[["게시물", posts.length], ["전체 글(이어쓰기 포함)", entries], ["참여 학생", students], ["교사 글", teachers],
           ["소개된 책", books], ["숨김", hidden]]
         .map(([k, v]) => h("div", { class: "stat" }, h("b", null, v), h("span", null, k))));
   }
@@ -130,8 +133,8 @@
     const last = p.entries[p.entries.length - 1];
     const open = expanded.has(p.id);
     const tr = h("tr", { class: (p.hidden ? "is-hidden " : "") + "c-" + p.color },
-      h("td", { "data-label": "학번" }, p.student_no),
-      h("td", { "data-label": "이름" }, h("b", null, p.author_name)),
+      h("td", { "data-label": "학번/부서" }, p.student_no),
+      h("td", { "data-label": "이름" }, p.role === "teacher" ? h("span", { class: "pill teacher" }, "교사") : null, " ", h("b", null, p.author_name)),
       h("td", { "data-label": "닉네임" }, p.nickname || "–"),
       h("td", { "data-label": "책", class: "book-cell" },
         h("span", { class: "dot", title: colorLabel[p.color] }),
@@ -190,10 +193,11 @@
         const idx = p.entries.indexOf(e);
         rows.push({
           "게시물 번호": p.id,
-          "학번": p.student_no,
+          "학생/교사": p.role === "teacher" ? "교사" : "학생",
+          "학번/부서": p.student_no,
           "이름": p.author_name,
           "닉네임": p.nickname || "",
-          "구분": idx === 0 ? "첫 글" : "이어쓰기 " + idx,
+          "글 구분": idx === 0 ? "첫 글" : "이어쓰기 " + idx,
           "책 제목": e.book_title,
           "저자": e.book_author,
           "내용": e.quote,
@@ -208,7 +212,8 @@
 
   function summaryRows() {
     return filtered().map(({ post: p, entries }) => ({
-      "학번": p.student_no,
+      "학생/교사": p.role === "teacher" ? "교사" : "학생",
+      "학번/부서": p.student_no,
       "이름": p.author_name,
       "닉네임": p.nickname || "",
       "글 수": entries.length,
@@ -262,10 +267,10 @@
       const XLSX = await loadXlsx();
       const wb = XLSX.utils.book_new();
       const s1 = XLSX.utils.json_to_sheet(rows);
-      s1["!cols"] = [8, 10, 10, 12, 10, 24, 14, 60, 17, 8, 8].map((w) => ({ wch: w }));
+      s1["!cols"] = [8, 8, 10, 10, 12, 10, 24, 14, 60, 17, 8, 8].map((w) => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, s1, "전체 기록");
       const s2 = XLSX.utils.json_to_sheet(summaryRows());
-      s2["!cols"] = [10, 10, 12, 6, 50, 17, 17, 8].map((w) => ({ wch: w }));
+      s2["!cols"] = [8, 10, 10, 12, 6, 50, 17, 17, 8].map((w) => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, s2, "학생별 요약");
       XLSX.writeFile(wb, fileName("xlsx"));
     } catch (e) { toast(e.message, true); }
