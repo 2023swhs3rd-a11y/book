@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>관리자 · 독서 현황판</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body class="admin-page">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">🗂️</span>
+        <div>
+          <h1>독서 현황판 관리</h1>
+          <p class="subtitle"><a href="./">← 게시판으로</a></p>
+        </div>
+      </div>
+      <div class="toolbar" id="adminTools" hidden>
+        <button class="btn small" id="pwBtn" type="button">비밀번호 변경</button>
+        <button class="btn small" id="logoutBtn" type="button">로그아웃</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- 로그인 -->
+    <form id="loginForm" class="login-card">
+      <h2>관리자 로그인</h2>
+      <label>관리자 비밀번호
+        <input id="loginPw" type="password" autocomplete="current-password" required>
+      </label>
+      <p class="form-error" role="alert"></p>
+      <button class="btn primary" type="submit">들어가기</button>
+    </form>
+
+    <!-- 관리 화면 -->
+    <section id="adminMain" hidden>
+      <div class="stats" id="stats"></div>
+
+      <form class="filters" id="filters" onsubmit="return false">
+        <label>검색어
+          <input name="q" type="search" placeholder="이름, 닉네임, 책, 저자, 내용">
+        </label>
+        <label>학번 (앞자리)
+          <input name="sno" inputmode="numeric" placeholder="예: 203 → 2학년 3반">
+        </label>
+        <label>작성일 (부터)
+          <input name="from" type="date">
+        </label>
+        <label>작성일 (까지)
+          <input name="to" type="date">
+        </label>
+        <label>상태
+          <select name="state">
+            <option value="all">전체</option>
+            <option value="shown">게시 중</option>
+            <option value="hidden">숨김</option>
+          </select>
+        </label>
+        <label>정렬
+          <select name="sort">
+            <option value="recent">최근 활동순</option>
+            <option value="sno">학번순</option>
+            <option value="count">글 많은 순</option>
+          </select>
+        </label>
+        <div class="filter-actions">
+          <button class="btn small" type="reset">필터 초기화</button>
+          <button class="btn small" type="button" id="reloadBtn">↻ 새로고침</button>
+        </div>
+      </form>
+
+      <div class="export-bar">
+        <span id="resultCount"></span>
+        <div>
+          <button class="btn small" id="csvBtn" type="button">⬇ CSV</button>
+          <button class="btn small primary" id="xlsxBtn" type="button">⬇ 엑셀(XLSX)</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>학번</th><th>이름</th><th>닉네임</th><th>책 (최근)</th>
+              <th>글 수</th><th>처음 작성</th><th>최근 활동</th><th>상태</th><th>관리</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/config.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>

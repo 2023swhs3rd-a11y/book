@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#fff8ec">
+  <title>독서 현황판</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="board-page">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-icon" aria-hidden="true">📚</span>
+        <div>
+          <h1 id="boardTitle">지금 읽고 있어요</h1>
+          <p id="boardSubtitle" class="subtitle"></p>
+        </div>
+      </div>
+      <div class="toolbar">
+        <label class="search">
+          <span class="sr-only">검색</span>
+          <input id="search" type="search" placeholder="책 제목, 저자, 이름 검색" autocomplete="off">
+        </label>
+        <button id="newBtn" class="btn primary desktop-only" type="button">✏️ 글쓰기</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <p id="status" class="status">불러오는 중…</p>
+    <section id="board" class="board" aria-live="polite"></section>
+  </main>
+
+  <button id="fab" class="fab mobile-only" type="button" aria-label="글쓰기">✏️ 글쓰기</button>
+
+  <!-- 새 글 쓰기 -->
+  <dialog id="postDialog" class="sheet">
+    <form id="postForm" method="dialog" novalidate>
+      <div class="sheet-head">
+        <h2>내가 읽고 있는 책 소개하기</h2>
+        <button type="button" class="icon-btn" data-close aria-label="닫기">✕</button>
+      </div>
+      <div class="sheet-body">
+        <fieldset>
+          <legend>작성자</legend>
+          <div class="row">
+            <label>학번 <b class="req">*</b>
+              <input name="student_no" inputmode="numeric" maxlength="20" required placeholder="예: 20315">
+            </label>
+            <label>이름 <b class="req">*</b>
+              <input name="author_name" maxlength="20" required placeholder="홍길동" autocomplete="off">
+            </label>
+          </div>
+          <div class="row">
+            <label>닉네임 <span class="opt">(선택)</span>
+              <input name="nickname" maxlength="20" placeholder="게시판에 이름 대신 보여요" autocomplete="off">
+            </label>
+            <label>비밀번호 4자리 <b class="req">*</b>
+              <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required placeholder="숫자 4자리" autocomplete="new-password">
+            </label>
+          </div>
+          <p class="hint">학번과 이름은 선생님만 볼 수 있어요. 게시판에는 닉네임(없으면 이름)이 보여요.<br>비밀번호는 나중에 내용을 이어 쓸 때 필요해요.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>책 소개</legend>
+          <div class="row">
+            <label>책 제목 <b class="req">*</b>
+              <input name="book_title" maxlength="100" required placeholder="책 제목" autocomplete="off">
+            </label>
+            <label>저자 <b class="req">*</b>
+              <input name="book_author" maxlength="50" required placeholder="지은이" autocomplete="off">
+            </label>
+          </div>
+          <label>읽고 있는 내용 · 기억에 남는 문구 <b class="req">*</b>
+            <textarea name="quote" maxlength="500" rows="5" required placeholder="지금 읽고 있는 부분이나 마음에 남은 문장을 적어 주세요."></textarea>
+            <span class="counter"><span data-count>0</span> / 500</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>말풍선 색</legend>
+          <div class="swatches" id="swatches"></div>
+        </fieldset>
+
+        <p class="form-error" role="alert"></p>
+      </div>
+      <div class="sheet-foot">
+        <button type="button" class="btn" data-close>취소</button>
+        <button type="submit" class="btn primary">게시하기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 이어 쓰기 -->
+  <dialog id="addDialog" class="sheet">
+    <form id="addForm" method="dialog" novalidate>
+      <div class="sheet-head">
+        <h2>이어 쓰기</h2>
+        <button type="button" class="icon-btn" data-close aria-label="닫기">✕</button>
+      </div>
+      <div class="sheet-body">
+        <p class="add-target" id="addTarget"></p>
+        <label>비밀번호 4자리 <b class="req">*</b>
+          <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required placeholder="처음 글 쓸 때 정한 숫자 4자리" autocomplete="off">
+        </label>
+        <div class="row">
+          <label>책 제목 <b class="req">*</b>
+            <input name="book_title" maxlength="100" required autocomplete="off">
+          </label>
+          <label>저자 <b class="req">*</b>
+            <input name="book_author" maxlength="50" required autocomplete="off">
+          </label>
+        </div>
+        <p class="hint">같은 책을 계속 읽고 있다면 그대로 두고, 다른 책으로 넘어갔다면 바꿔 주세요.</p>
+        <label>더 읽은 내용 · 새로 남은 문구 <b class="req">*</b>
+          <textarea name="quote" maxlength="500" rows="5" required placeholder="새로 읽은 부분이나 생각을 적어 주세요."></textarea>
+          <span class="counter"><span data-count>0</span> / 500</span>
+        </label>
+        <p class="form-error" role="alert"></p>
+      </div>
+      <div class="sheet-foot">
+        <button type="button" class="btn" data-close>취소</button>
+        <button type="submit" class="btn primary">이어 쓰기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="js/config.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/board.js"></script>
+</body>
+</html>
