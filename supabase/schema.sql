@@ -34,6 +34,10 @@ create table if not exists public.entries (
 );
 create index if not exists entries_post_id_idx on public.entries(post_id);
 
+-- [2차 업데이트] 학생/교사 구분. 교사는 student_no 칸에 학번 대신 '부서'를 저장합니다.
+alter table public.posts add column if not exists role text not null default 'student'
+  check (role in ('student', 'teacher'));
+
 create table if not exists public.admin_config (
   id            int primary key default 1 check (id = 1),
   pw_hash       text not null,
@@ -89,13 +93,13 @@ end $$;
 -- 학생용 함수
 -- ---------------------------------------------------------------------
 
--- 게시판 조회: 학번·비밀번호는 내보내지 않습니다.
+-- 게시판 조회: 말풍선에 학번(교사는 부서)·이름·닉네임을 표시합니다. 비밀번호는 내보내지 않습니다.
 create or replace function public.get_board()
 returns json language sql stable security definer
 set search_path = public as $$
   select coalesce(json_agg(b order by b.updated_at desc), '[]'::json)
   from (
-    select p.id,
+    select p.id, p.role, p.student_no, p.author_name, p.nickname,
            coalesce(p.nickname, p.author_name) as display_name,
            p.color, p.created_at, p.updated_at,
            (select json_agg(json_build_object(
@@ -108,8 +112,9 @@ set search_path = public as $$
   ) b
 $$;
 
+drop function if exists public.create_post(text, text, text, text, text, text, text, text);
 create or replace function public.create_post(
-  p_student_no text, p_name text, p_nickname text, p_pin text, p_color text,
+  p_role text, p_student_no text, p_name text, p_nickname text, p_pin text, p_color text,
   p_quote text, p_book_title text, p_book_author text)
 returns bigint language plpgsql security definer
 set search_path = public, extensions as $$
@@ -122,8 +127,8 @@ begin
     raise exception 'MISSING_FIELD';
   end if;
 
-  insert into public.posts (student_no, author_name, nickname, pin_hash, color)
-  values (_clean(p_student_no, 20), _clean(p_name, 20), _clean(p_nickname, 20),
+  insert into public.posts (role, student_no, author_name, nickname, pin_hash, color)
+  values (case when p_role = 'teacher' then 'teacher' else 'student' end, _clean(p_student_no, 20), _clean(p_name, 20), _clean(p_nickname, 20),
           crypt(p_pin, gen_salt('bf')), _check_color(p_color))
   returning id into new_id;
 
@@ -179,7 +184,7 @@ begin
   return json_build_object('ok', true, 'posts', (
     select coalesce(json_agg(b order by b.updated_at desc), '[]'::json)
     from (
-      select p.id, p.student_no, p.author_name, p.nickname, p.color, p.hidden,
+      select p.id, p.role, p.student_no, p.author_name, p.nickname, p.color, p.hidden,
              p.created_at, p.updated_at,
              (select json_agg(json_build_object(
                        'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
@@ -263,7 +268,7 @@ end $$;
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function
   public.get_board(),
-  public.create_post(text, text, text, text, text, text, text, text),
+  public.create_post(text, text, text, text, text, text, text, text, text),
   public.add_entry(bigint, text, text, text, text),
   public.admin_list(text),
   public.admin_delete_post(text, bigint),

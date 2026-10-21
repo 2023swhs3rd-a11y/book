@@ -28,17 +28,33 @@
       h("span", { class: "book-author" }, e.book_author));
   }
 
-  function renderPost(p) {
+  // 말풍선 아래 작성자 표시: 학번(교사는 부서) · 이름 · 닉네임
+  function identity(p) {
+    const teacher = p.role === "teacher";
+    return h("div", { class: "ident" },
+      h("div", { class: "ident-line" },
+        teacher ? h("span", { class: "role-chip" }, "선생님") : null,
+        p.student_no ? h("span", { class: "sno" }, p.student_no) : null,
+        h("span", { class: "name" }, p.author_name || p.display_name),
+        p.nickname ? h("span", { class: "nick" }, p.nickname) : null),
+      h("time", { datetime: p.created_at, title: fmtDate(p.created_at, true) }, timeAgo(p.updated_at)));
+  }
+
+  function renderPost(p, opts) {
+    const example = opts && opts.example;
+    const teacher = p.role === "teacher";
     const entries = p.entries || [];
     const first = entries[0];
     const more = entries.slice(1);
-    const initial = (p.display_name || "?").trim().charAt(0);
+    const initial = teacher ? "🍎" : (p.author_name || p.display_name || "?").trim().charAt(0);
 
     return h("article", {
-        class: "post c-" + p.color + (more.length ? " has-more" : ""),
+        class: "post c-" + p.color + (teacher ? " teacher" : "") + (more.length ? " has-more" : "") + (example ? " example" : ""),
         dataset: { id: p.id },
       },
       h("div", { class: "bubble main" },
+        example ? h("span", { class: "example-tag" }, "✨ 예시") : null,
+        teacher ? h("span", { class: "teacher-tag" }, "🍎 선생님의 책") : null,
         more.length ? h("span", { class: "badge" }, "📖 " + more.length + "번 이어 씀") : null,
         bookLine(first),
         h("p", { class: "quote" }, first.quote)),
@@ -54,25 +70,50 @@
         : null,
       h("footer", { class: "who" },
         h("span", { class: "avatar", "aria-hidden": "true" }, initial),
-        h("span", { class: "name" }, p.display_name),
-        h("time", { datetime: p.created_at, title: fmtDate(p.created_at, true) }, timeAgo(p.updated_at)),
-        h("button", { class: "link-btn", type: "button", onclick: () => openAdd(p.id) }, "＋ 이어 쓰기")));
+        identity(p),
+        h("button", { class: "link-btn", type: "button",
+          onclick: () => (demo || example ? toast("예시 말풍선이에요. [글쓰기]로 직접 남겨 보세요!") : openAdd(p.id)) },
+          "＋ 이어 쓰기")));
+  }
+
+  function matches(p, q) {
+    return [p.student_no, p.author_name, p.nickname, p.display_name,
+      ...(p.entries || []).flatMap((e) => [e.book_title, e.book_author, e.quote])]
+      .join(" ").toLowerCase().includes(q);
   }
 
   function render() {
     const q = searchEl.value.trim().toLowerCase();
-    const shown = q
-      ? posts.filter((p) =>
-          [p.display_name, ...(p.entries || []).flatMap((e) => [e.book_title, e.book_author, e.quote])]
-            .join(" ").toLowerCase().includes(q))
-      : posts;
+    const source = demo ? DEMO_POSTS : posts;
+    const shown = q ? source.filter((p) => matches(p, q)) : source;
 
-    layout(shown.map(renderPost));
-    if (!posts.length) statusEl.textContent = "아직 게시물이 없어요. 첫 번째로 읽고 있는 책을 소개해 보세요!";
+    const cards = shown.map((p) => renderPost(p));
+    // 실제 게시판 첫머리에는 작성 예시 말풍선을 하나 보여 줍니다.
+    if (!demo && !q) cards.unshift(renderPost(EXAMPLE_POST, { example: true }));
+    layout(cards);
+
+    document.body.classList.toggle("demo-mode", demo);
+    demoBanner.hidden = !demo;
+    demoBtns.forEach((b) => (b.textContent = demo ? "← 실제 게시판" : "👀 예시 화면"));
+
+    if (!demo && !posts.length) statusEl.textContent = "아직 게시물이 없어요. 위 예시처럼 읽고 있는 책을 소개해 보세요!";
     else if (!shown.length) statusEl.textContent = "‘" + searchEl.value.trim() + "’ 검색 결과가 없어요.";
     else statusEl.textContent = q ? shown.length + "개를 찾았어요." : "";
     statusEl.hidden = !statusEl.textContent;
   }
+
+  // ---------- 예시 화면 ----------
+  const { EXAMPLE_POST, DEMO_POSTS } = window.BoardExamples;
+  const demoBanner = $("#demoBanner");
+  const demoBtns = document.querySelectorAll("[data-demo-toggle]");
+  let demo = false;
+  function setDemo(on) {
+    demo = on;
+    searchEl.value = "";
+    render();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+  demoBtns.forEach((b) => b.addEventListener("click", () => setDemo(!demo)));
 
   // 최신 글이 왼쪽 위부터 가로로 놓이도록, 가장 짧은 열에 차례로 쌓습니다.
   let lastCards = [];
@@ -94,16 +135,23 @@
     layout(lastCards);
   });
 
+  let loaded = false;
   async function load(quiet) {
     if (!isConfigured()) {
+      render();
       statusEl.textContent = "js/config.js 에 Supabase 주소와 키를 넣어 주세요. (README 참고)";
       return;
     }
     try {
       posts = await rpc("get_board");
       render();
+      loaded = true;
     } catch (e) {
-      if (!quiet) statusEl.textContent = "게시판을 불러오지 못했어요: " + e.message;
+      if (!quiet) {
+        if (!loaded) render();
+        statusEl.textContent = "게시판을 불러오지 못했어요: " + e.message;
+        statusEl.hidden = false;
+      }
     }
   }
 
@@ -135,7 +183,8 @@
     for (const el of form.querySelectorAll("[required]")) {
       if (!el.value.trim()) {
         el.focus();
-        return (el.closest("label").firstChild.textContent.trim() || "필수 항목") + " 칸을 채워 주세요.";
+        const label = el.closest("label").querySelector("[data-label]") || el.closest("label").firstChild;
+        return (label.textContent.trim() || "필수 항목") + " 칸을 채워 주세요.";
       }
     }
     if (!/^\d{4}$/.test(form.pin.value)) {
@@ -159,7 +208,19 @@
       h("span", { class: "sr-only" }, c.label)));
   });
 
+  // 학생 / 교사 선택: 교사는 학번 대신 부서를 입력하고, 전용 말풍선으로 보입니다.
+  function applyRole() {
+    const teacher = postForm.elements.role.value === "teacher";
+    const sno = postForm.student_no;
+    postForm.classList.toggle("is-teacher", teacher);
+    $("#snoLabel").textContent = teacher ? "부서" : "학번";
+    sno.placeholder = teacher ? "예: 국어과, 3학년부" : "예: 20315";
+    sno.inputMode = teacher ? "text" : "numeric";
+  }
+  postForm.querySelectorAll('input[name="role"]').forEach((r) => r.addEventListener("change", applyRole));
+
   function openPost() {
+    if (demo) setDemo(false);
     formError(postForm, "");
     postDialog.showModal();
     updatePostCount();
@@ -177,6 +238,7 @@
     submitWith(f, async () => {
       try {
         await rpc("create_post", {
+          p_role: f.elements.role.value,
           p_student_no: f.student_no.value.trim(),
           p_name: f.author_name.value.trim(),
           p_nickname: f.nickname.value.trim() || null,
@@ -188,6 +250,7 @@
         });
         postDialog.close();
         f.reset();
+        applyRole();
         toast("게시했어요! 🎉");
         await load();
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -205,10 +268,10 @@
     const last = p.entries[p.entries.length - 1];
     addForm.reset();
     formError(addForm, "");
-    $("#addTarget").textContent = p.display_name + " 님의 『" + last.book_title + "』 말풍선에 이어 씁니다.";
+    $("#addTarget").textContent = (p.author_name || p.display_name) + " 님의 『" + last.book_title + "』 말풍선에 이어 씁니다.";
     addForm.book_title.value = last.book_title;
     addForm.book_author.value = last.book_author;
-    addDialog.className = "sheet c-" + p.color;
+    addDialog.className = "sheet c-" + p.color + (p.role === "teacher" ? " teacher" : "");
     addDialog.showModal();
     updateAddCount();
     addForm.pin.focus();
@@ -251,7 +314,7 @@
 
   load();
   setInterval(() => {
-    if (document.visibilityState === "visible" && !postDialog.open && !addDialog.open) load(true);
+    if (document.visibilityState === "visible" && !demo && !postDialog.open && !addDialog.open) load(true);
   }, REFRESH_MS);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") load(true);

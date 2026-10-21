@@ -14,7 +14,7 @@
 }
 .login-card .btn { width: 100%; }
 
-.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 16px; }
+.stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
 .stat {
   background: var(--card); border: 1px solid var(--line); border-radius: 16px;
   padding: 14px 16px; display: flex; flex-direction: column;
@@ -23,7 +23,7 @@
 .stat span { font-size: 13px; color: var(--muted); }
 
 .filters {
-  display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 1fr 1fr auto; gap: 12px; align-items: end;
+  display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 1fr 1fr 1fr auto; gap: 12px; align-items: end;
   background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px;
 }
 .filters > * { min-width: 0; }
@@ -56,6 +56,7 @@
 .pill { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
 .pill.on { background: #e1f5ea; color: #1f7a4a; }
 .pill.off { background: #eee; color: #777; }
+.pill.teacher { background: #b5532f; color: #fff; }
 
 tr.detail td { background: #fffbf4; }
 .entry-list { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 10px; }

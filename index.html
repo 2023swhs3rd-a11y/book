@@ -24,12 +24,17 @@
           <span class="sr-only">검색</span>
           <input id="search" type="search" placeholder="책 제목, 저자, 이름 검색" autocomplete="off">
         </label>
+        <button class="btn demo-btn" type="button" data-demo-toggle>👀 예시 화면</button>
         <button id="newBtn" class="btn primary desktop-only" type="button">✏️ 글쓰기</button>
       </div>
     </div>
   </header>
 
   <main>
+    <div id="demoBanner" class="demo-banner" hidden>
+      <span>👀 지금은 <b>예시 화면</b>이에요. 실제 글이 아니라 게시판이 채워지면 어떤 모습인지 보여 드려요.</span>
+      <button class="btn small" type="button" data-demo-toggle>← 실제 게시판</button>
+    </div>
     <p id="status" class="status">불러오는 중…</p>
     <section id="board" class="board" aria-live="polite"></section>
   </main>
@@ -46,8 +51,12 @@
       <div class="sheet-body">
         <fieldset>
           <legend>작성자</legend>
+          <div class="role-toggle" role="radiogroup" aria-label="작성자 구분">
+            <label><input type="radio" name="role" value="student" checked><span>🎒 학생</span></label>
+            <label><input type="radio" name="role" value="teacher"><span>🍎 교사</span></label>
+          </div>
           <div class="row">
-            <label>학번 <b class="req">*</b>
+            <label><span data-label id="snoLabel">학번</span> <b class="req">*</b>
               <input name="student_no" inputmode="numeric" maxlength="20" required placeholder="예: 20315">
             </label>
             <label>이름 <b class="req">*</b>
@@ -62,7 +71,7 @@
               <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required placeholder="숫자 4자리" autocomplete="new-password">
             </label>
           </div>
-          <p class="hint">학번과 이름은 선생님만 볼 수 있어요. 게시판에는 닉네임(없으면 이름)이 보여요.<br>비밀번호는 나중에 내용을 이어 쓸 때 필요해요.</p>
+          <p class="hint">말풍선 아래에 <b>학번(교사는 부서) · 이름 · 닉네임</b> 순서로 표시돼요.<br>비밀번호는 나중에 내용을 이어 쓸 때 필요해요.</p>
         </fieldset>
 
         <fieldset>
@@ -81,10 +90,11 @@
           </label>
         </fieldset>
 
-        <fieldset>
+        <fieldset class="color-field">
           <legend>말풍선 색</legend>
           <div class="swatches" id="swatches"></div>
         </fieldset>
+        <p class="teacher-note">🍎 선생님 글은 편지지 모양의 <b>선생님 전용 말풍선</b>으로 보여요.</p>
 
         <p class="form-error" role="alert"></p>
       </div>
@@ -131,6 +141,7 @@
 
   <script src="js/config.js"></script>
   <script src="js/common.js"></script>
+  <script src="js/examples.js"></script>
   <script src="js/board.js"></script>
 </body>
 </html>
