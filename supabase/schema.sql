@@ -1,0 +1,283 @@
+-- =====================================================================
+-- 독서 현황판 · Supabase 데이터베이스 설정
+-- Supabase 대시보드 > SQL Editor 에 이 파일 전체를 붙여 넣고 [Run] 하세요.
+-- 맨 아래 "관리자 비밀번호" 부분은 꼭 원하는 값으로 바꾼 뒤 실행하세요.
+-- 여러 번 실행해도 안전합니다(기존 게시물은 지워지지 않습니다).
+-- =====================================================================
+
+create extension if not exists pgcrypto with schema extensions;
+
+-- ---------------------------------------------------------------------
+-- 테이블
+-- ---------------------------------------------------------------------
+create table if not exists public.posts (
+  id            bigint generated always as identity primary key,
+  student_no    text not null check (char_length(student_no) between 1 and 20),
+  author_name   text not null check (char_length(author_name) between 1 and 20),
+  nickname      text check (nickname is null or char_length(nickname) between 1 and 20),
+  pin_hash      text not null,
+  color         text not null default 'yellow',
+  hidden        boolean not null default false,
+  fail_count    int not null default 0,
+  locked_until  timestamptz,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create table if not exists public.entries (
+  id          bigint generated always as identity primary key,
+  post_id     bigint not null references public.posts(id) on delete cascade,
+  quote       text not null check (char_length(quote) between 1 and 500),
+  book_title  text not null check (char_length(book_title) between 1 and 100),
+  book_author text not null check (char_length(book_author) between 1 and 50),
+  created_at  timestamptz not null default now()
+);
+create index if not exists entries_post_id_idx on public.entries(post_id);
+
+create table if not exists public.admin_config (
+  id            int primary key default 1 check (id = 1),
+  pw_hash       text not null,
+  fail_count    int not null default 0,
+  locked_until  timestamptz
+);
+
+-- 모든 테이블은 직접 접근을 막고, 아래 함수(RPC)를 통해서만 읽고 씁니다.
+alter table public.posts        enable row level security;
+alter table public.entries      enable row level security;
+alter table public.admin_config enable row level security;
+revoke all on public.posts, public.entries, public.admin_config from anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- 내부 도우미
+-- ---------------------------------------------------------------------
+create or replace function public._clean(p text, max_len int)
+returns text language sql immutable as $$
+  select nullif(left(btrim(coalesce(p, '')), max_len), '')
+$$;
+
+create or replace function public._check_color(p text)
+returns text language sql immutable as $$
+  select case when p in ('yellow','pink','sky','mint','lavender','peach','lime','gray')
+              then p else 'yellow' end
+$$;
+
+-- 관리자 비밀번호 확인 (5회 틀리면 10분 잠금)
+-- 맞으면 null, 아니면 오류 코드를 돌려줍니다. 실패 횟수가 롤백되지 않도록
+-- 예외를 던지지 않고, 각 관리자 함수가 {"error": 코드} 를 반환합니다.
+create or replace function public._admin_check(p_pw text)
+returns text language plpgsql security definer
+set search_path = public, extensions as $$
+declare cfg public.admin_config;
+begin
+  select * into cfg from public.admin_config where id = 1 for update;
+  if not found then return 'ADMIN_NOT_SET'; end if;
+  if cfg.locked_until is not null and cfg.locked_until > now() then
+    return 'ADMIN_LOCKED';
+  end if;
+  if cfg.pw_hash = crypt(coalesce(p_pw, ''), cfg.pw_hash) then
+    update public.admin_config set fail_count = 0, locked_until = null where id = 1;
+    return null;
+  end if;
+  update public.admin_config
+     set fail_count = case when cfg.fail_count + 1 >= 5 then 0 else cfg.fail_count + 1 end,
+         locked_until = case when cfg.fail_count + 1 >= 5 then now() + interval '10 minutes' end
+   where id = 1;
+  return 'ADMIN_BAD_PASSWORD';
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 학생용 함수
+-- ---------------------------------------------------------------------
+
+-- 게시판 조회: 학번·비밀번호는 내보내지 않습니다.
+create or replace function public.get_board()
+returns json language sql stable security definer
+set search_path = public as $$
+  select coalesce(json_agg(b order by b.updated_at desc), '[]'::json)
+  from (
+    select p.id,
+           coalesce(p.nickname, p.author_name) as display_name,
+           p.color, p.created_at, p.updated_at,
+           (select json_agg(json_build_object(
+                     'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
+                     'book_author', e.book_author, 'created_at', e.created_at)
+                   order by e.created_at, e.id)
+              from public.entries e where e.post_id = p.id) as entries
+      from public.posts p
+     where not p.hidden
+  ) b
+$$;
+
+create or replace function public.create_post(
+  p_student_no text, p_name text, p_nickname text, p_pin text, p_color text,
+  p_quote text, p_book_title text, p_book_author text)
+returns bigint language plpgsql security definer
+set search_path = public, extensions as $$
+declare new_id bigint;
+begin
+  if coalesce(p_pin, '') !~ '^[0-9]{4}$' then raise exception 'PIN_FORMAT'; end if;
+  if _clean(p_student_no, 20) is null or _clean(p_name, 20) is null
+     or _clean(p_quote, 500) is null or _clean(p_book_title, 100) is null
+     or _clean(p_book_author, 50) is null then
+    raise exception 'MISSING_FIELD';
+  end if;
+
+  insert into public.posts (student_no, author_name, nickname, pin_hash, color)
+  values (_clean(p_student_no, 20), _clean(p_name, 20), _clean(p_nickname, 20),
+          crypt(p_pin, gen_salt('bf')), _check_color(p_color))
+  returning id into new_id;
+
+  insert into public.entries (post_id, quote, book_title, book_author)
+  values (new_id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50));
+  return new_id;
+end $$;
+
+-- 내용 이어쓰기 (비밀번호 5회 틀리면 10분 잠금)
+-- 반환값: 'OK' | 'BAD_PIN' | 'LOCKED'
+create or replace function public.add_entry(
+  p_post_id bigint, p_pin text, p_quote text, p_book_title text, p_book_author text)
+returns text language plpgsql security definer
+set search_path = public, extensions as $$
+declare p public.posts;
+begin
+  select * into p from public.posts where id = p_post_id and not hidden for update;
+  if not found then raise exception 'NOT_FOUND'; end if;
+  if p.locked_until is not null and p.locked_until > now() then return 'LOCKED'; end if;
+
+  if p.pin_hash <> crypt(coalesce(p_pin, ''), p.pin_hash) then
+    update public.posts
+       set fail_count = case when p.fail_count + 1 >= 5 then 0 else p.fail_count + 1 end,
+           locked_until = case when p.fail_count + 1 >= 5 then now() + interval '10 minutes' end
+     where id = p.id;
+    return 'BAD_PIN';
+  end if;
+
+  if _clean(p_quote, 500) is null or _clean(p_book_title, 100) is null
+     or _clean(p_book_author, 50) is null then
+    raise exception 'MISSING_FIELD';
+  end if;
+  if (select count(*) from public.entries where post_id = p.id) >= 30 then
+    raise exception 'TOO_MANY_ENTRIES';
+  end if;
+
+  insert into public.entries (post_id, quote, book_title, book_author)
+  values (p.id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50));
+  update public.posts set fail_count = 0, locked_until = null, updated_at = now() where id = p.id;
+  return 'OK';
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 관리자용 함수: 모두 관리자 비밀번호를 확인하고
+-- 성공하면 {"ok": true, ...}, 실패하면 {"error": "코드"} 를 돌려줍니다.
+-- ---------------------------------------------------------------------
+create or replace function public.admin_list(p_pw text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  return json_build_object('ok', true, 'posts', (
+    select coalesce(json_agg(b order by b.updated_at desc), '[]'::json)
+    from (
+      select p.id, p.student_no, p.author_name, p.nickname, p.color, p.hidden,
+             p.created_at, p.updated_at,
+             (select json_agg(json_build_object(
+                       'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
+                       'book_author', e.book_author, 'created_at', e.created_at)
+                     order by e.created_at, e.id)
+                from public.entries e where e.post_id = p.id) as entries
+        from public.posts p
+    ) b));
+end $$;
+
+create or replace function public.admin_delete_post(p_pw text, p_post_id bigint)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  delete from public.posts where id = p_post_id;
+  return json_build_object('ok', true);
+end $$;
+
+-- 이어쓴 내용 하나만 삭제 (글이 하나만 남은 게시물은 게시물 삭제를 사용)
+create or replace function public.admin_delete_entry(p_pw text, p_entry_id bigint)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare
+  err text := public._admin_check(p_pw);
+  pid bigint;
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  select post_id into pid from public.entries where id = p_entry_id;
+  if pid is null then return json_build_object('ok', true); end if;
+  if (select count(*) from public.entries where post_id = pid) <= 1 then
+    return json_build_object('error', 'LAST_ENTRY');
+  end if;
+  delete from public.entries where id = p_entry_id;
+  return json_build_object('ok', true);
+end $$;
+
+create or replace function public.admin_set_hidden(p_pw text, p_post_id bigint, p_hidden boolean)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  update public.posts set hidden = p_hidden where id = p_post_id;
+  return json_build_object('ok', true);
+end $$;
+
+-- 학생이 비밀번호를 잊었을 때 새 4자리 비밀번호로 바꿔 줍니다.
+create or replace function public.admin_reset_pin(p_pw text, p_post_id bigint, p_new_pin text)
+returns json language plpgsql security definer
+set search_path = public, extensions as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  if coalesce(p_new_pin, '') !~ '^[0-9]{4}$' then
+    return json_build_object('error', 'PIN_FORMAT');
+  end if;
+  update public.posts
+     set pin_hash = crypt(p_new_pin, gen_salt('bf')), fail_count = 0, locked_until = null
+   where id = p_post_id;
+  return json_build_object('ok', true);
+end $$;
+
+create or replace function public.admin_change_password(p_pw text, p_new_pw text)
+returns json language plpgsql security definer
+set search_path = public, extensions as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  if char_length(coalesce(p_new_pw, '')) < 6 then
+    return json_build_object('error', 'ADMIN_PW_TOO_SHORT');
+  end if;
+  update public.admin_config set pw_hash = crypt(p_new_pw, gen_salt('bf')) where id = 1;
+  return json_build_object('ok', true);
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 권한: 학생(anon)은 아래 공개 함수만 호출할 수 있습니다.
+-- ---------------------------------------------------------------------
+revoke execute on all functions in schema public from public, anon, authenticated;
+grant execute on function
+  public.get_board(),
+  public.create_post(text, text, text, text, text, text, text, text),
+  public.add_entry(bigint, text, text, text, text),
+  public.admin_list(text),
+  public.admin_delete_post(text, bigint),
+  public.admin_delete_entry(text, bigint),
+  public.admin_set_hidden(text, bigint, boolean),
+  public.admin_reset_pin(text, bigint, text),
+  public.admin_change_password(text, text)
+to anon, authenticated;
+
+-- ---------------------------------------------------------------------
+-- 관리자 비밀번호 (처음 한 번만 설정됩니다)
+-- ↓ '여기에-관리자-비밀번호' 를 원하는 비밀번호(6자 이상)로 바꾼 뒤 실행하세요.
+--   이후 변경은 관리자 화면의 [비밀번호 변경] 에서 할 수 있습니다.
+-- ---------------------------------------------------------------------
+insert into public.admin_config (id, pw_hash)
+values (1, extensions.crypt('여기에-관리자-비밀번호', extensions.gen_salt('bf')))
+on conflict (id) do nothing;
