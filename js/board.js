@@ -1,6 +1,6 @@
 // 학생용 게시판 화면
 (function () {
-  const { cfg, COLORS, CATEGORIES, isConfigured, rpc, timeAgo, fmtDate, h, toast } = window.Board;
+  const { cfg, COLORS, CATEGORIES, isConfigured, rpc, timeAgo, fmtDate, h, toast, ask } = window.Board;
   const REFRESH_MS = 20000;
 
   const $ = (sel) => document.querySelector(sel);
@@ -146,7 +146,9 @@
 
   async function report(p, comment) {
     const what = comment ? "이 댓글" : "이 말풍선";
-    const reason = prompt(what + "을 관리자에게 신고할까요?\n신고 이유를 적어 주세요. (선택, 예: 비방, 거짓 정보, 목적과 무관)");
+    const reason = await ask({ title: "🚩 " + what + "을 신고할까요?", okText: "신고하기", danger: true,
+      message: "관리자에게 알려요. 신고한 사람은 공개되지 않아요.",
+      input: { maxlength: 100, placeholder: "신고 이유 (선택) 예: 비방, 거짓 정보, 목적과 무관" } });
     if (reason == null) return;
     try {
       await rpc("report", { p_post_id: p.id, p_comment_id: comment ? comment.id : null,
@@ -253,7 +255,9 @@
   }
 
   async function removeComment(c) {
-    const pin = prompt("댓글을 쓸 때 정한 비밀번호 4자리를 입력해 주세요.");
+    const pin = await ask({ title: "댓글 지우기", okText: "지우기", danger: true,
+      message: "댓글을 쓸 때 정한 비밀번호 4자리를 입력해 주세요.",
+      input: { type: "password", inputmode: "numeric", maxlength: 4, placeholder: "숫자 4자리" } });
     if (pin == null) return;
     try {
       const result = await rpc("delete_comment", { p_comment_id: c.id, p_pin: pin.trim() });
@@ -830,7 +834,7 @@
     });
   });
 
-  $("#deleteBtn").addEventListener("click", () => {
+  $("#deleteBtn").addEventListener("click", async () => {
     const f = editForm;
     if (!/^\d{4}$/.test(f.pin.value)) {
       f.pin.focus();
@@ -842,7 +846,7 @@
           ? "첫 글을 지우면 이어 쓴 글까지 말풍선 전체가 지워져요. 지울까요?"
           : "이 말풍선을 지울까요? 되돌릴 수 없어요.")
       : "이 이어쓰기 글을 지울까요? 되돌릴 수 없어요.";
-    if (!confirm(msg)) return;
+    if (!(await ask({ title: "글 지우기", message: msg, okText: "지우기", danger: true }))) return;
     submitWith(f, async () => {
       try {
         const result = await rpc("delete_own", {

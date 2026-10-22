@@ -117,7 +117,8 @@ supabase/schema.sql DB 설정 (Supabase SQL Editor 에서 한 번 실행)
 3. **함수 만들기**: **Edge Functions** → **Deploy a new function** → **Via Editor** → 함수 이름을 `book-search` 로 하고, 이 저장소의 [`supabase/functions/book-search/index.ts`](supabase/functions/book-search/index.ts) 내용을 모두 붙여 넣은 뒤 **Deploy function**.
 4. **로그인 검사 끄기**: 만든 `book-search` 함수 → **Details**(또는 Settings) → **Verify JWT / Enforce JWT verification** 을 **끄고** 저장합니다. (학생 화면의 공개 키로 부를 수 있게 하기 위함)
    - 대시보드가 함수 주소를 `rapid-responder` 처럼 자동으로 정하는 경우가 있습니다. 목록의 **URL** 끝부분이 `book-search` 가 아니면 [`js/config.js`](js/config.js) 의 `BOOK_SEARCH_FUNCTION` 을 그 이름으로 바꿔 주세요.
-5. **확인**: 브라우저에서 `https://<프로젝트 주소>.supabase.co/functions/v1/book-search?q=데미안` 을 열어 책 목록(JSON)이 보이면 끝입니다.
+   - 함수는 **우리 게시판 주소(`https://2023swhs3rd-a11y.github.io`)에서 온 요청만** 받습니다. 게시판 주소가 바뀌면 Secrets 에 `ALLOWED_ORIGINS` 를 만들어 새 주소를 적어 주세요(여러 개는 쉼표로).
+5. **확인**: 게시판 글쓰기 창에서 책 제목을 두 글자 이상 입력했을 때 카카오 검색 결과(📖)가 뜨면 끝입니다. (함수 주소를 브라우저 주소창에 직접 열면 다른 곳에서 온 요청으로 보고 `FORBIDDEN` 이 나오는 것이 정상입니다.)
    - `NO_KEY` 가 보이면 2번 이름(`KAKAO_REST_KEY`)을 확인하세요.
    - `SEARCH_FAILED` 가 보이면 키가 맞는지, 카카오 앱 설정에서 검색 API 사용이 막혀 있지 않은지 확인하세요.
 
@@ -130,6 +131,9 @@ supabase/schema.sql DB 설정 (Supabase SQL Editor 에서 한 번 실행)
 > 그래야 학생들 브라우저가 예전 파일을 쓰지 않고 새 파일을 받아 옵니다.
 
 ## 운영 팁
+
+- **자동 깨우기**: `.github/workflows/keep-alive.yml` 이 3일마다 게시판을 한 번 조회해, 방학에도 Supabase 가 일시 정지되지 않게 합니다. 저장소 **Actions** 탭에서 'Supabase 깨어 있기' 를 열어 **Run workflow** 로 직접 실행해 볼 수 있습니다. (GitHub 는 저장소에 60일 동안 변화가 없으면 예약 작업을 멈추니, 그때는 Actions 탭에서 다시 켜 주세요.)
+- **버전**: 화면 맨 아래 버전은 `js/common.js` 의 `VERSION` 에서 바꿉니다.
 
 - **무료 요금제 일시 정지**: Supabase 무료 프로젝트는 **7일 동안 아무도 접속하지 않으면 일시 정지**됩니다.
   방학 뒤 게시판이 안 열리면 Supabase 대시보드에서 프로젝트를 열고 **Restore/Resume** 를 누르세요(데이터는 그대로 남아 있습니다).
