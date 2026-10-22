@@ -116,6 +116,7 @@ supabase/schema.sql DB 설정 (Supabase SQL Editor 에서 한 번 실행)
 2. **키 저장**: Supabase 대시보드 → 왼쪽 **Edge Functions** → **Secrets** → 이름 `KAKAO_REST_KEY`, 값에 복사한 REST API 키 → **Save**.
 3. **함수 만들기**: **Edge Functions** → **Deploy a new function** → **Via Editor** → 함수 이름을 `book-search` 로 하고, 이 저장소의 [`supabase/functions/book-search/index.ts`](supabase/functions/book-search/index.ts) 내용을 모두 붙여 넣은 뒤 **Deploy function**.
 4. **로그인 검사 끄기**: 만든 `book-search` 함수 → **Details**(또는 Settings) → **Verify JWT / Enforce JWT verification** 을 **끄고** 저장합니다. (학생 화면의 공개 키로 부를 수 있게 하기 위함)
+   - 대시보드가 함수 주소를 `rapid-responder` 처럼 자동으로 정하는 경우가 있습니다. 목록의 **URL** 끝부분이 `book-search` 가 아니면 [`js/config.js`](js/config.js) 의 `BOOK_SEARCH_FUNCTION` 을 그 이름으로 바꿔 주세요.
 5. **확인**: 브라우저에서 `https://<프로젝트 주소>.supabase.co/functions/v1/book-search?q=데미안` 을 열어 책 목록(JSON)이 보이면 끝입니다.
    - `NO_KEY` 가 보이면 2번 이름(`KAKAO_REST_KEY`)을 확인하세요.
    - `SEARCH_FAILED` 가 보이면 키가 맞는지, 카카오 앱 설정에서 검색 API 사용이 막혀 있지 않은지 확인하세요.

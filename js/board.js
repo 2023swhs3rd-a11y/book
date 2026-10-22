@@ -322,7 +322,7 @@
       const key = cfg.SUPABASE_ANON_KEY;
       const headers = { apikey: key };
       if (key.startsWith("eyJ")) headers.Authorization = "Bearer " + key;
-      const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/book-search?q=" + encodeURIComponent(q), { headers });
+      const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/" + (cfg.BOOK_SEARCH_FUNCTION || "book-search") + "?q=" + encodeURIComponent(q), { headers });
       const body = await res.json();
       if (!res.ok || !body.books) throw new Error(body.error || res.status);
       return (remoteCache[q] = body.books.map((b) => ({
