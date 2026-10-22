@@ -1,6 +1,6 @@
 // 관리자 화면: 조회 · 필터 · 숨김 · 삭제 · 비밀번호 초기화 · CSV/XLSX 내보내기
 (function () {
-  const { cfg, COLORS, CATEGORIES, isConfigured, rpc, fmtDate, h, toast } = window.Board;
+  const { cfg, COLORS, CATEGORIES, isConfigured, rpc, fmtDate, h, toast, ask } = window.Board;
   const XLSX_SRC = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
   const QR_SRC = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js";
   const PW_KEY = "board-admin-pw";
@@ -51,9 +51,13 @@
   });
 
   $("#pwBtn").addEventListener("click", async () => {
-    const next = prompt("새 관리자 비밀번호 (6자 이상)");
+    const next = await ask({ title: "관리자 비밀번호 변경", message: "새 비밀번호를 입력해 주세요. (6자 이상)",
+      input: { type: "password", autocomplete: "new-password" }, okText: "다음" });
     if (next == null) return;
-    if (next !== prompt("한 번 더 입력해 주세요")) return toast("두 번 입력한 비밀번호가 달라요.", true);
+    const again = await ask({ title: "관리자 비밀번호 변경", message: "확인을 위해 한 번 더 입력해 주세요.",
+      input: { type: "password", autocomplete: "new-password" }, okText: "바꾸기" });
+    if (again == null) return;
+    if (next !== again) return toast("두 번 입력한 비밀번호가 달라요.", true);
     try {
       await rpc("admin_change_password", { p_pw: pw, p_new_pw: next });
       pw = next;
@@ -248,12 +252,14 @@
         h("button", { class: "btn small", type: "button",
           onclick: () => act("admin_set_hidden", { p_post_id: p.id, p_hidden: !p.hidden }, p.hidden ? "다시 보이게 했어요." : "숨겼어요.") },
           p.hidden ? "보이기" : "숨기기"),
-        h("button", { class: "btn small", type: "button", onclick: () => {
-          const pin = prompt(p.author_name + " 학생의 새 비밀번호 (숫자 4자리)");
+        h("button", { class: "btn small", type: "button", onclick: async () => {
+          const pin = await ask({ title: "비밀번호 초기화", message: p.student_no + " " + p.author_name + " 님의 새 비밀번호 (숫자 4자리)",
+            input: { inputmode: "numeric", maxlength: 4, placeholder: "숫자 4자리" }, okText: "바꾸기" });
           if (pin != null) act("admin_reset_pin", { p_post_id: p.id, p_new_pin: pin.trim() }, "비밀번호를 " + pin.trim() + " 로 바꿨어요.");
         } }, "비번 초기화"),
-        h("button", { class: "btn small danger", type: "button", onclick: () => {
-          if (confirm(p.student_no + " " + p.author_name + " 학생의 게시물(글 " + p.entries.length + "개)을 모두 삭제할까요?\n되돌릴 수 없어요."))
+        h("button", { class: "btn small danger", type: "button", onclick: async () => {
+          if (await ask({ title: "게시물 삭제", danger: true, okText: "삭제",
+            message: p.student_no + " " + p.author_name + " 님의 게시물(글 " + p.entries.length + "개, 댓글 " + (p.comments || []).length + "개)을 모두 삭제할까요? 되돌릴 수 없어요." }))
             act("admin_delete_post", { p_post_id: p.id }, "삭제했어요.");
         } }, "삭제")));
 
@@ -275,8 +281,8 @@
           h("div", { class: "entry-meta" },
             h("b", null, i === 0 ? "첫 글" : "이어쓰기 " + i),
             " · 『" + e.book_title + "』 " + e.book_author + (e.category ? " · " + e.category : "") + " · " + fmtDate(e.created_at, true),
-            i > 0 ? h("button", { class: "btn small danger", type: "button", onclick: () => {
-              if (confirm("이 이어쓰기 글을 삭제할까요?")) act("admin_delete_entry", { p_entry_id: e.id }, "글을 삭제했어요.");
+            i > 0 ? h("button", { class: "btn small danger", type: "button", onclick: async () => {
+              if (await ask({ title: "이어쓰기 글 삭제", message: "이 이어쓰기 글을 삭제할까요? 되돌릴 수 없어요.", okText: "삭제", danger: true })) act("admin_delete_entry", { p_entry_id: e.id }, "글을 삭제했어요.");
             } }, "이 글 삭제") : null),
           h("p", null, e.quote)))),
       (p.comments || []).length
@@ -287,8 +293,8 @@
                 h("div", { class: "entry-meta" },
                   h("b", null, c.student_no + " " + c.author_name), " · " + fmtDate(c.created_at, true),
                   c.report_count ? h("span", { class: "pill report" }, "🚩 " + c.report_count) : null,
-                  h("button", { class: "btn small danger", type: "button", onclick: () => {
-                    if (confirm(c.author_name + " 님의 댓글을 삭제할까요?")) act("admin_delete_comment", { p_comment_id: c.id }, "댓글을 삭제했어요.");
+                  h("button", { class: "btn small danger", type: "button", onclick: async () => {
+                    if (await ask({ title: "댓글 삭제", message: c.author_name + " 님의 댓글을 삭제할까요?", okText: "삭제", danger: true })) act("admin_delete_comment", { p_comment_id: c.id }, "댓글을 삭제했어요.");
                   } }, "댓글 삭제")),
                 h("p", null, c.body)))))
         : null));

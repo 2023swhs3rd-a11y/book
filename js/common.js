@@ -16,6 +16,9 @@
   // 책 계열 (schema.sql 의 _check_category 와 같아야 합니다)
   const CATEGORIES = ["소설", "시·에세이", "인문과학", "사회과학", "자연과학", "공학·기술", "예술·체육", "진로·자기계발", "기타"];
 
+  // 화면 아래에 보이는 버전. 기능을 바꿀 때마다 올려 주세요.
+  const VERSION = "v1.10 (2026.10.22)";
+
   const ERROR_TEXT = {
     PIN_FORMAT: "비밀번호는 숫자 4자리로 입력해 주세요.",
     MISSING_FIELD: "빠진 칸이 있어요. 필수 항목을 모두 채워 주세요.",
@@ -134,5 +137,40 @@
     toastTimer = setTimeout(() => (el.className = ""), 2800);
   }
 
-  window.Board = { cfg, COLORS, CATEGORIES, ERROR_TEXT, isConfigured, rpc, fmtDate, timeAgo, h, toast };
+  // 확인·입력 창. 카카오톡 등 앱 안 브라우저에서는 prompt/confirm 이 막히는 일이 있어 직접 만든 창을 씁니다.
+  // 입력칸이 있으면 입력한 글자를, 없으면 true 를, 취소하면 null 을 돌려줍니다.
+  function ask(opts) {
+    return new Promise((resolve) => {
+      const input = opts.input
+        ? h("input", Object.assign({ class: "ask-input", autocomplete: "off" }, opts.input))
+        : null;
+      const dlg = h("dialog", { class: "sheet ask" + (opts.danger ? " danger" : "") },
+        h("form", { method: "dialog", novalidate: true },
+          h("div", { class: "sheet-body" },
+            h("h2", null, opts.title),
+            opts.message ? h("p", { class: "ask-msg" }, opts.message) : null,
+            input),
+          h("div", { class: "sheet-foot" },
+            h("button", { class: "btn", type: "button", value: "cancel", onclick: () => dlg.close("cancel") }, "취소"),
+            h("button", { class: "btn " + (opts.danger ? "danger-fill" : "primary"), type: "submit", value: "ok" }, opts.okText || "확인"))));
+      if (input && input.inputMode === "numeric") {
+        input.addEventListener("input", () => (input.value = input.value.replace(/\D/g, "").slice(0, Number(input.maxLength) || 99)));
+      }
+      dlg.addEventListener("close", () => {
+        const ok = dlg.returnValue === "ok";
+        dlg.remove();
+        resolve(ok ? (input ? input.value : true) : null);
+      });
+      dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close("cancel"); });
+      document.body.append(dlg);
+      dlg.showModal();
+      (input || dlg.querySelector('button[type="submit"]')).focus();
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-version]").forEach((el) => (el.textContent = VERSION));
+  });
+
+  window.Board = { cfg, VERSION, COLORS, CATEGORIES, ERROR_TEXT, isConfigured, rpc, fmtDate, timeAgo, h, toast, ask };
 })();
