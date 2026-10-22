@@ -25,7 +25,7 @@
 .setting textarea { resize: vertical; line-height: 1.6; }
 .setting .inline { display: flex; gap: 8px; margin-top: 6px; }
 .setting .inline.end { justify-content: flex-end; }
-.stats { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; margin-bottom: 16px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .stat {
   background: var(--card); border: 1px solid var(--line); border-radius: 16px;
   padding: 14px 16px; display: flex; flex-direction: column;
@@ -34,7 +34,7 @@
 .stat span { font-size: 13px; color: var(--muted); }
 
 .filters {
-  display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 1fr 1fr 1fr auto; gap: 12px; align-items: end;
+  display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 1fr 1fr 1fr 1fr auto; gap: 12px; align-items: end;
   background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px;
 }
 .filters > * { min-width: 0; }
@@ -68,6 +68,11 @@
 .pill.on { background: #e1f5ea; color: #1f7a4a; }
 .pill.off { background: #eee; color: #777; }
 .pill.teacher { background: #b5532f; color: #fff; }
+.pill.report { background: #fde3df; color: #b3261e; margin-left: 4px; }
+.report-box { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: #fff1ef; border: 1px solid #f3c4bd; }
+.report-box h4 { margin: 0 0 6px; font-size: 14px; color: #b3261e; display: flex; align-items: center; gap: 8px; }
+.report-box h4 .btn { margin-left: auto; }
+.report-box ul { margin: 0; padding-left: 18px; font-size: 13.5px; }
 
 tr.detail td { background: #fffbf4; }
 .entry-list { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 10px; }
@@ -84,14 +89,14 @@ tr.detail .entry-list li { --bd: var(--line); }
 /* 모바일: 표 대신 카드 */
 @media (max-width: 900px) {
   .settings-body { grid-template-columns: 1fr; }
-  .stats { grid-template-columns: repeat(4, 1fr); }
+  .stats { grid-template-columns: repeat(3, 1fr); }
   .filters { grid-template-columns: 1fr 1fr; }
   .filters label:first-child { grid-column: 1 / -1; }
   .filter-actions { grid-column: 1 / -1; }
 }
 @media (max-width: 640px) {
   .admin-page main { padding-bottom: 40px; }
-  .stats { grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stats { grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .stat { padding: 10px 12px; border-radius: 12px; }
   .stat b { font-size: 20px; }
   .stat span { font-size: 12px; }

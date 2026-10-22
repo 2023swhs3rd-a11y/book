@@ -13,6 +13,9 @@
     { key: "gray", label: "회색" },
   ];
 
+  // 책 계열 (schema.sql 의 _check_category 와 같아야 합니다)
+  const CATEGORIES = ["소설", "시·에세이", "인문과학", "사회과학", "자연과학", "공학·기술", "예술·체육", "진로·자기계발", "기타"];
+
   const ERROR_TEXT = {
     PIN_FORMAT: "비밀번호는 숫자 4자리로 입력해 주세요.",
     MISSING_FIELD: "빠진 칸이 있어요. 필수 항목을 모두 채워 주세요.",
@@ -32,6 +35,8 @@
     TEACHER_CODE_TOO_SHORT: "교사 인증 코드는 4자 이상이어야 해요.",
     TOO_FAST_COMMENT: "방금 댓글을 남겼어요. 잠시 뒤에 다시 시도해 주세요.",
     TOO_MANY_COMMENTS: "이 말풍선에는 댓글을 더 남길 수 없어요(최대 100개).",
+    CATEGORY: "책 계열을 골라 주세요.",
+    TOO_MANY_REPORTS: "신고는 한 시간에 20번까지 할 수 있어요.",
     LAST_ENTRY: "글이 하나뿐인 게시물이에요. 게시물 전체 삭제를 사용해 주세요.",
   };
 
@@ -129,5 +134,5 @@
     toastTimer = setTimeout(() => (el.className = ""), 2800);
   }
 
-  window.Board = { cfg, COLORS, ERROR_TEXT, isConfigured, rpc, fmtDate, timeAgo, h, toast };
+  window.Board = { cfg, COLORS, CATEGORIES, ERROR_TEXT, isConfigured, rpc, fmtDate, timeAgo, h, toast };
 })();

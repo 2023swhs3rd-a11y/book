@@ -54,6 +54,32 @@ create index if not exists comments_post_id_idx on public.comments(post_id);
 alter table public.comments enable row level security;
 revoke all on public.comments from anon, authenticated;
 
+-- [5차 업데이트] 책 계열, 공감, 신고
+alter table public.entries add column if not exists category text;
+
+create table if not exists public.post_likes (
+  post_id     bigint not null references public.posts(id) on delete cascade,
+  device      text not null,
+  created_at  timestamptz not null default now(),
+  primary key (post_id, device)
+);
+alter table public.post_likes enable row level security;
+revoke all on public.post_likes from anon, authenticated;
+
+-- 신고: comment_id 가 비어 있으면 말풍선(게시물) 신고, 있으면 댓글 신고
+create table if not exists public.reports (
+  id          bigint generated always as identity primary key,
+  post_id     bigint not null references public.posts(id) on delete cascade,
+  comment_id  bigint references public.comments(id) on delete cascade,
+  device      text not null,
+  reason      text check (reason is null or char_length(reason) <= 100),
+  created_at  timestamptz not null default now()
+);
+create unique index if not exists reports_once_idx
+  on public.reports (post_id, coalesce(comment_id, 0), device);
+alter table public.reports enable row level security;
+revoke all on public.reports from anon, authenticated;
+
 create table if not exists public.admin_config (
   id            int primary key default 1 check (id = 1),
   pw_hash       text not null,
@@ -79,6 +105,19 @@ create or replace function public._check_color(p text)
 returns text language sql immutable as $$
   select case when p in ('yellow','pink','sky','mint','lavender','peach','lime','gray')
               then p else 'yellow' end
+$$;
+
+-- 책 계열: 목록에 없는 값이면 null
+create or replace function public._check_category(p text)
+returns text language sql immutable as $$
+  select case when p in ('소설','시·에세이','인문과학','사회과학','자연과학','공학·기술','예술·체육','진로·자기계발','기타')
+              then p end
+$$;
+
+-- 기기 표시(브라우저마다 만든 임의의 값)가 올바른지
+create or replace function public._check_device(p text)
+returns boolean language sql immutable as $$
+  select coalesce(p, '') ~ '^[A-Za-z0-9-]{16,64}$'
 $$;
 
 -- 관리자 비밀번호 확인 (5회 틀리면 10분 잠금)
@@ -119,9 +158,10 @@ set search_path = public as $$
            coalesce(p.nickname, p.author_name) as display_name,
            p.color, p.created_at, p.updated_at,
            (select count(*) from public.comments c where c.post_id = p.id) as comment_count,
+           (select count(*) from public.post_likes l where l.post_id = p.id) as like_count,
            (select json_agg(json_build_object(
                      'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
-                     'book_author', e.book_author, 'created_at', e.created_at)
+                     'book_author', e.book_author, 'category', e.category, 'created_at', e.created_at)
                    order by e.created_at, e.id)
               from public.entries e where e.post_id = p.id) as entries
       from public.posts p
@@ -200,9 +240,11 @@ end $$;
 -- 새 글: 성공하면 {"ok": true, "id": 번호}, 실패하면 {"error": 코드}
 drop function if exists public.create_post(text, text, text, text, text, text, text, text);
 drop function if exists public.create_post(text, text, text, text, text, text, text, text, text);
+drop function if exists public.create_post(text, text, text, text, text, text, text, text, text, text);
 create or replace function public.create_post(
   p_role text, p_student_no text, p_name text, p_nickname text, p_pin text, p_color text,
-  p_quote text, p_book_title text, p_book_author text, p_teacher_code text default null)
+  p_quote text, p_book_title text, p_book_author text, p_teacher_code text default null,
+  p_category text default null)
 returns json language plpgsql security definer
 set search_path = public, extensions as $$
 declare
@@ -216,6 +258,7 @@ begin
      or _clean(p_book_author, 50) is null then
     return json_build_object('error', 'MISSING_FIELD');
   end if;
+  if _check_category(p_category) is null then return json_build_object('error', 'CATEGORY'); end if;
   if is_teacher then
     err := _teacher_check(p_teacher_code);
     if err is not null then return json_build_object('error', err); end if;
@@ -236,14 +279,18 @@ begin
           _clean(p_name, 20), _clean(p_nickname, 20), crypt(p_pin, gen_salt('bf')), _check_color(p_color))
   returning id into new_id;
 
-  insert into public.entries (post_id, quote, book_title, book_author)
-  values (new_id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50));
+  insert into public.entries (post_id, quote, book_title, book_author, category)
+  values (new_id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50),
+          _check_category(p_category));
   return json_build_object('ok', true, 'id', new_id);
 end $$;
 
 -- 내용 이어쓰기. 반환값: 'OK' | 'BAD_PIN' | 'LOCKED' | 'TOO_FAST' | 'BANNED_WORD'
+-- 계열을 비워 보내면 바로 앞 글의 계열을 이어받습니다.
+drop function if exists public.add_entry(bigint, text, text, text, text);
 create or replace function public.add_entry(
-  p_post_id bigint, p_pin text, p_quote text, p_book_title text, p_book_author text)
+  p_post_id bigint, p_pin text, p_quote text, p_book_title text, p_book_author text,
+  p_category text default null)
 returns text language plpgsql security definer
 set search_path = public, extensions as $$
 declare
@@ -267,15 +314,20 @@ begin
   end if;
   if _has_banned(p_quote, p_book_title, p_book_author) then return 'BANNED_WORD'; end if;
 
-  insert into public.entries (post_id, quote, book_title, book_author)
-  values (p.id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50));
+  insert into public.entries (post_id, quote, book_title, book_author, category)
+  values (p.id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50),
+          coalesce(_check_category(p_category),
+                   (select category from public.entries where post_id = p.id
+                     order by created_at desc, id desc limit 1)));
   update public.posts set updated_at = now() where id = p.id;
   return 'OK';
 end $$;
 
--- 본인 글 고치기 (비밀번호 필요). 반환값은 add_entry 와 같습니다.
+-- 본인 글 고치기 (비밀번호 필요). 반환값은 add_entry 와 같습니다. 계열을 비워 보내면 그대로 둡니다.
+drop function if exists public.edit_entry(bigint, bigint, text, text, text, text);
 create or replace function public.edit_entry(
-  p_post_id bigint, p_entry_id bigint, p_pin text, p_quote text, p_book_title text, p_book_author text)
+  p_post_id bigint, p_entry_id bigint, p_pin text, p_quote text, p_book_title text, p_book_author text,
+  p_category text default null)
 returns text language plpgsql security definer
 set search_path = public, extensions as $$
 declare
@@ -297,7 +349,8 @@ begin
 
   update public.entries
      set quote = _clean(p_quote, 500), book_title = _clean(p_book_title, 100),
-         book_author = _clean(p_book_author, 50)
+         book_author = _clean(p_book_author, 50),
+         category = coalesce(_check_category(p_category), category)
    where id = p_entry_id;
   return 'OK';
 end $$;
@@ -389,6 +442,57 @@ begin
   return 'OK';
 end $$;
 
+-- 공감 누르기/취소 (기기마다 한 번). {"ok": true, "liked": 참/거짓, "count": 공감 수}
+create or replace function public.toggle_like(p_post_id bigint, p_device text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare liked boolean;
+begin
+  if not _check_device(p_device) then return json_build_object('error', 'MISSING_FIELD'); end if;
+  if not exists (select 1 from public.posts where id = p_post_id and not hidden) then
+    return json_build_object('error', 'NOT_FOUND');
+  end if;
+  delete from public.post_likes where post_id = p_post_id and device = p_device;
+  liked := not found;
+  if liked then
+    insert into public.post_likes (post_id, device) values (p_post_id, p_device);
+  end if;
+  return json_build_object('ok', true, 'liked', liked,
+    'count', (select count(*) from public.post_likes where post_id = p_post_id));
+end $$;
+
+-- 신고 (기기마다 대상 하나에 한 번, 한 시간에 20번까지). {"ok": true} 또는 {"error": 코드}
+create or replace function public.report(p_post_id bigint, p_comment_id bigint, p_reason text, p_device text)
+returns json language plpgsql security definer
+set search_path = public as $$
+begin
+  if not _check_device(p_device) then return json_build_object('error', 'MISSING_FIELD'); end if;
+  if not exists (select 1 from public.posts where id = p_post_id and not hidden)
+     or (p_comment_id is not null and not exists
+          (select 1 from public.comments where id = p_comment_id and post_id = p_post_id)) then
+    return json_build_object('error', 'NOT_FOUND');
+  end if;
+  if (select count(*) from public.reports
+       where device = p_device and created_at > now() - interval '1 hour') >= 20 then
+    return json_build_object('error', 'TOO_MANY_REPORTS');
+  end if;
+  insert into public.reports (post_id, comment_id, device, reason)
+  values (p_post_id, p_comment_id, p_device, _clean(p_reason, 100))
+  on conflict do nothing;
+  return json_build_object('ok', true);
+end $$;
+
+-- 관리자: 게시물(과 그 댓글)의 신고를 확인 완료로 지우기
+create or replace function public.admin_clear_reports(p_pw text, p_post_id bigint)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  delete from public.reports where post_id = p_post_id;
+  return json_build_object('ok', true);
+end $$;
+
 -- 관리자: 댓글 삭제
 create or replace function public.admin_delete_comment(p_pw text, p_comment_id bigint)
 returns json language plpgsql security definer
@@ -415,15 +519,22 @@ begin
     from (
       select p.id, p.role, p.student_no, p.author_name, p.nickname, p.color, p.hidden,
              p.created_at, p.updated_at,
+             (select count(*) from public.post_likes l where l.post_id = p.id) as like_count,
              (select json_agg(json_build_object(
                        'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
-                       'book_author', e.book_author, 'created_at', e.created_at)
+                       'book_author', e.book_author, 'category', e.category, 'created_at', e.created_at)
                      order by e.created_at, e.id)
                 from public.entries e where e.post_id = p.id) as entries,
              (select json_agg(json_build_object(
                        'id', c.id, 'student_no', c.student_no, 'author_name', c.author_name,
-                       'body', c.body, 'created_at', c.created_at) order by c.created_at, c.id)
-                from public.comments c where c.post_id = p.id) as comments
+                       'body', c.body, 'created_at', c.created_at,
+                       'report_count', (select count(*) from public.reports r where r.comment_id = c.id))
+                     order by c.created_at, c.id)
+                from public.comments c where c.post_id = p.id) as comments,
+             (select json_agg(json_build_object(
+                       'comment_id', r.comment_id, 'reason', r.reason, 'created_at', r.created_at)
+                     order by r.created_at)
+                from public.reports r where r.post_id = p.id) as reports
         from public.posts p
     ) b));
 end $$;
@@ -542,14 +653,17 @@ end $$;
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function
   public.get_board(),
-  public.create_post(text, text, text, text, text, text, text, text, text, text),
-  public.add_entry(bigint, text, text, text, text),
-  public.edit_entry(bigint, bigint, text, text, text, text),
+  public.create_post(text, text, text, text, text, text, text, text, text, text, text),
+  public.add_entry(bigint, text, text, text, text, text),
+  public.edit_entry(bigint, bigint, text, text, text, text, text),
   public.delete_own(bigint, bigint, text),
   public.get_comments(bigint),
   public.add_comment(bigint, text, text, text, text),
   public.delete_comment(bigint, text),
   public.admin_delete_comment(text, bigint),
+  public.toggle_like(bigint, text),
+  public.report(bigint, bigint, text, text),
+  public.admin_clear_reports(text, bigint),
   public.admin_set_teacher_code(text, text),
   public.admin_get_words(text),
   public.admin_set_words(text, text[]),
