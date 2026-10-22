@@ -9,8 +9,8 @@
   <link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022m">
-  <link rel="stylesheet" href="css/admin.css?v=20261022m">
+  <link rel="stylesheet" href="css/style.css?v=20261022n">
+  <link rel="stylesheet" href="css/admin.css?v=20261022n">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -64,6 +64,21 @@
             <div class="inline end"><button class="btn small primary" type="submit">금지어 저장</button></div>
           </form>
         </div>
+      </details>
+
+      <details class="settings" id="boardBox">
+        <summary>📢 게시판 공지 · 🎯 이달의 주제</summary>
+        <form class="class-body board-form" id="boardForm">
+          <p class="hint">공지는 학생 게시판 맨 위에 보여요. 이달의 주제를 정하면 글쓰기 창에 '주제 참여' 체크가 생기고,
+            체크한 글에는 🎯 표시가 붙어 [주제 글만 보기]로 모아 볼 수 있어요. 비워 두면 보이지 않아요.</p>
+          <label>공지 (200자)
+            <input name="notice" maxlength="200" placeholder="예: 11월은 독서 주간! 진로와 관련된 책을 소개해 주세요." autocomplete="off">
+          </label>
+          <label>이달의 주제 (30자)
+            <input name="topic" maxlength="30" placeholder="예: 진로 책" autocomplete="off">
+          </label>
+          <div class="inline end"><button class="btn small primary" type="submit">저장</button></div>
+        </form>
       </details>
 
       <details class="settings" id="classBox">
@@ -174,8 +189,8 @@
   <!-- 인쇄용 학생별 독서 기록 카드 -->
   <section id="cards" class="cards" aria-hidden="true"></section>
 
-  <script src="js/config.js?v=20261022m"></script>
-  <script src="js/common.js?v=20261022m"></script>
-  <script src="js/admin.js?v=20261022m"></script>
+  <script src="js/config.js?v=20261022n"></script>
+  <script src="js/common.js?v=20261022n"></script>
+  <script src="js/admin.js?v=20261022n"></script>
 </body>
 </html>

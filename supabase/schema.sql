@@ -94,6 +94,11 @@ create table if not exists public.admin_config (
 );
 -- [7차 업데이트] 마지막 엑셀 백업 시각 (관리자 화면의 백업 알림용)
 alter table public.admin_config add column if not exists last_backup_at timestamptz;
+-- [8차 업데이트] 공지 띠, 이달의 주제, 선생님 댓글 표시
+alter table public.admin_config add column if not exists notice text;
+alter table public.admin_config add column if not exists topic text;
+alter table public.entries add column if not exists topic text;
+alter table public.comments add column if not exists is_teacher boolean not null default false;
 
 -- 모든 테이블은 직접 접근을 막고, 아래 함수(RPC)를 통해서만 읽고 씁니다.
 alter table public.posts        enable row level security;
@@ -169,7 +174,7 @@ set search_path = public as $$
            (select count(*) from public.post_likes l where l.post_id = p.id) as like_count,
            (select json_agg(json_build_object(
                      'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
-                     'book_author', e.book_author, 'category', e.category, 'created_at', e.created_at)
+                     'book_author', e.book_author, 'category', e.category, 'topic', e.topic, 'created_at', e.created_at)
                    order by e.created_at, e.id)
               from public.entries e where e.post_id = p.id) as entries
       from public.posts p
@@ -245,14 +250,23 @@ begin
   return 'TEACHER_CODE';
 end $$;
 
+-- 이달의 주제에 참여했으면 지금 정해진 주제 이름, 아니면 null
+create or replace function public._current_topic(p_join boolean)
+returns text language sql stable security definer
+set search_path = public as $$
+  select case when coalesce(p_join, false) then (select nullif(btrim(topic), '') from public.admin_config where id = 1) end
+$$;
+
 -- 새 글: 성공하면 {"ok": true, "id": 번호}, 실패하면 {"error": 코드}
 drop function if exists public.create_post(text, text, text, text, text, text, text, text);
 drop function if exists public.create_post(text, text, text, text, text, text, text, text, text);
 drop function if exists public.create_post(text, text, text, text, text, text, text, text, text, text);
+drop function if exists public.create_post(text, text, text, text, text, text, text, text, text, text, text);
+-- p_topic: 이달의 주제에 참여하면 true (주제 이름은 서버에 저장된 값을 씁니다)
 create or replace function public.create_post(
   p_role text, p_student_no text, p_name text, p_nickname text, p_pin text, p_color text,
   p_quote text, p_book_title text, p_book_author text, p_teacher_code text default null,
-  p_category text default null)
+  p_category text default null, p_topic boolean default false)
 returns json language plpgsql security definer
 set search_path = public, extensions as $$
 declare
@@ -287,18 +301,19 @@ begin
           _clean(p_name, 20), _clean(p_nickname, 20), crypt(p_pin, gen_salt('bf')), _check_color(p_color))
   returning id into new_id;
 
-  insert into public.entries (post_id, quote, book_title, book_author, category)
+  insert into public.entries (post_id, quote, book_title, book_author, category, topic)
   values (new_id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50),
-          _check_category(p_category));
+          _check_category(p_category), _current_topic(p_topic));
   return json_build_object('ok', true, 'id', new_id);
 end $$;
 
 -- 내용 이어쓰기. 반환값: 'OK' | 'BAD_PIN' | 'LOCKED' | 'TOO_FAST' | 'BANNED_WORD'
 -- 계열을 비워 보내면 바로 앞 글의 계열을 이어받습니다.
 drop function if exists public.add_entry(bigint, text, text, text, text);
+drop function if exists public.add_entry(bigint, text, text, text, text, text);
 create or replace function public.add_entry(
   p_post_id bigint, p_pin text, p_quote text, p_book_title text, p_book_author text,
-  p_category text default null)
+  p_category text default null, p_topic boolean default false)
 returns text language plpgsql security definer
 set search_path = public, extensions as $$
 declare
@@ -322,11 +337,12 @@ begin
   end if;
   if _has_banned(p_quote, p_book_title, p_book_author) then return 'BANNED_WORD'; end if;
 
-  insert into public.entries (post_id, quote, book_title, book_author, category)
+  insert into public.entries (post_id, quote, book_title, book_author, category, topic)
   values (p.id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50),
           coalesce(_check_category(p_category),
                    (select category from public.entries where post_id = p.id
-                     order by created_at desc, id desc limit 1)));
+                     order by created_at desc, id desc limit 1)),
+          _current_topic(p_topic));
   update public.posts set updated_at = now() where id = p.id;
   return 'OK';
 end $$;
@@ -393,17 +409,21 @@ returns json language sql stable security definer
 set search_path = public as $$
   select coalesce(json_agg(json_build_object(
            'id', c.id, 'student_no', c.student_no, 'author_name', c.author_name,
-           'body', c.body, 'created_at', c.created_at) order by c.created_at, c.id), '[]'::json)
+           'body', c.body, 'is_teacher', c.is_teacher, 'created_at', c.created_at) order by c.created_at, c.id), '[]'::json)
     from public.comments c
     join public.posts p on p.id = c.post_id and not p.hidden and p.season is null
    where c.post_id = p_post_id
 $$;
 
 -- 댓글 쓰기: {"ok": true} 또는 {"error": 코드}
+-- p_teacher_code 가 있으면 교사 인증 후 '선생님' 댓글로 표시합니다.
+drop function if exists public.add_comment(bigint, text, text, text, text);
 create or replace function public.add_comment(
-  p_post_id bigint, p_student_no text, p_name text, p_pin text, p_body text)
+  p_post_id bigint, p_student_no text, p_name text, p_pin text, p_body text,
+  p_teacher_code text default null)
 returns json language plpgsql security definer
 set search_path = public, extensions as $$
+declare err text;
 begin
   if coalesce(p_pin, '') !~ '^[0-9]{4}$' then return json_build_object('error', 'PIN_FORMAT'); end if;
   if _clean(p_student_no, 20) is null or _clean(p_name, 20) is null or _clean(p_body, 200) is null then
@@ -423,10 +443,14 @@ begin
     return json_build_object('error', 'TOO_FAST_COMMENT');
   end if;
   if _has_banned(p_name, p_body) then return json_build_object('error', 'BANNED_WORD'); end if;
+  if nullif(btrim(coalesce(p_teacher_code, '')), '') is not null then
+    err := _teacher_check(p_teacher_code);
+    if err is not null then return json_build_object('error', err); end if;
+  end if;
 
-  insert into public.comments (post_id, student_no, author_name, body, pin_hash)
+  insert into public.comments (post_id, student_no, author_name, body, pin_hash, is_teacher)
   values (p_post_id, _clean(p_student_no, 20), _clean(p_name, 20), _clean(p_body, 200),
-          crypt(p_pin, gen_salt('bf')));
+          crypt(p_pin, gen_salt('bf')), nullif(btrim(coalesce(p_teacher_code, '')), '') is not null);
   return json_build_object('ok', true);
 end $$;
 
@@ -532,12 +556,12 @@ begin
              (select count(*) from public.post_likes l where l.post_id = p.id) as like_count,
              (select json_agg(json_build_object(
                        'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
-                       'book_author', e.book_author, 'category', e.category, 'created_at', e.created_at)
+                       'book_author', e.book_author, 'category', e.category, 'topic', e.topic, 'created_at', e.created_at)
                      order by e.created_at, e.id)
                 from public.entries e where e.post_id = p.id) as entries,
              (select json_agg(json_build_object(
                        'id', c.id, 'student_no', c.student_no, 'author_name', c.author_name,
-                       'body', c.body, 'created_at', c.created_at,
+                       'body', c.body, 'is_teacher', c.is_teacher, 'created_at', c.created_at,
                        'report_count', (select count(*) from public.reports r where r.comment_id = c.id))
                      order by c.created_at, c.id)
                 from public.comments c where c.post_id = p.id) as comments,
@@ -601,7 +625,25 @@ end $$;
 -- DB 구조의 버전. schema.sql 을 바꿀 때마다 1씩 올리고 js/common.js 의 SCHEMA_VERSION 도 같이 올립니다.
 -- 화면은 이 값이 더 작으면 "schema.sql 을 다시 실행해 주세요" 라고 알려 줍니다.
 create or replace function public.schema_version()
-returns int language sql immutable as $$ select 7 $$;
+returns int language sql immutable as $$ select 8 $$;
+
+-- 게시판 맨 위 공지와 이달의 주제 (학생 화면에서 읽음)
+create or replace function public.get_settings()
+returns json language sql stable security definer
+set search_path = public as $$
+  select json_build_object('notice', nullif(btrim(notice), ''), 'topic', nullif(btrim(topic), ''))
+    from public.admin_config where id = 1
+$$;
+
+create or replace function public.admin_set_board(p_pw text, p_notice text, p_topic text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  update public.admin_config set notice = _clean(p_notice, 200), topic = _clean(p_topic, 30) where id = 1;
+  return json_build_object('ok', true);
+end $$;
 
 -- 선생님 추천: 말풍선을 맨 위에 고정하고 '선생님 추천' 표시를 답니다.
 create or replace function public.admin_set_pinned(p_pw text, p_post_id bigint, p_pinned boolean)
@@ -720,13 +762,14 @@ end $$;
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function
   public.schema_version(),
+  public.get_settings(),
   public.get_board(),
-  public.create_post(text, text, text, text, text, text, text, text, text, text, text),
-  public.add_entry(bigint, text, text, text, text, text),
+  public.create_post(text, text, text, text, text, text, text, text, text, text, text, boolean),
+  public.add_entry(bigint, text, text, text, text, text, boolean),
   public.edit_entry(bigint, bigint, text, text, text, text, text),
   public.delete_own(bigint, bigint, text),
   public.get_comments(bigint),
-  public.add_comment(bigint, text, text, text, text),
+  public.add_comment(bigint, text, text, text, text, text),
   public.delete_comment(bigint, text),
   public.admin_delete_comment(text, bigint),
   public.toggle_like(bigint, text),
@@ -744,7 +787,8 @@ grant execute on function
   public.admin_unarchive_season(text, text),
   public.admin_reset_pin(text, bigint, text),
   public.admin_change_password(text, text),
-  public.admin_mark_backup(text)
+  public.admin_mark_backup(text),
+  public.admin_set_board(text, text, text)
 to anon, authenticated;
 
 -- ---------------------------------------------------------------------

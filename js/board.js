@@ -59,7 +59,8 @@
     return h("div", { class: "book" },
       h("span", { class: "book-title" }, "『" + e.book_title + "』"),
       h("span", { class: "book-author" }, e.book_author),
-      e.category ? h("span", { class: "cat-chip" }, e.category) : null);
+      e.category ? h("span", { class: "cat-chip" }, e.category) : null,
+      e.topic ? h("span", { class: "topic-chip", title: "이달의 주제 참여 글" }, "🎯 " + e.topic) : null);
   }
 
   // 말풍선 아래 작성자 표시: 학번(교사는 부서) 이름 (닉네임)
@@ -222,8 +223,9 @@
   function fillComments(list, items, readOnly) {
     if (!items) return list.replaceChildren(h("li", { class: "comment-empty" }, "불러오는 중…"));
     if (!items.length) return list.replaceChildren(h("li", { class: "comment-empty" }, "첫 댓글을 남겨 보세요."));
-    list.replaceChildren(...items.map((c) => h("li", { class: "comment" },
+    list.replaceChildren(...items.map((c) => h("li", { class: "comment" + (c.is_teacher ? " teacher" : "") },
       h("div", { class: "comment-meta" },
+        c.is_teacher ? h("span", { class: "role-chip" }, "🍎 선생님") : null,
         h("b", null, c.student_no), " ", h("b", null, c.author_name),
         h("time", { datetime: c.created_at, title: fmtDate(c.created_at, true) }, timeAgo(c.created_at)),
         readOnly ? null : h("span", { class: "comment-actions" },
@@ -266,18 +268,27 @@
         h("input", { name: "student_no", maxlength: 20, placeholder: "학번/부서", "aria-label": "학번 또는 부서", value: me.student_no || "" }),
         h("input", { name: "author_name", maxlength: 20, placeholder: "이름", "aria-label": "이름", value: me.author_name || "" }),
         h("input", { name: "pin", type: "password", inputmode: "numeric", maxlength: 4, placeholder: "비번 4자리", "aria-label": "비밀번호 4자리", autocomplete: "off" })),
+      h("div", { class: "comment-fields teacher-fields" },
+        h("label", { class: "teacher-toggle" },
+          h("input", { type: "checkbox", name: "as_teacher", checked: me.role === "teacher" }), "🍎 교사로 쓰기"),
+        h("input", { name: "teacher_code", type: "password", maxlength: 40, placeholder: "교사 인증 코드", "aria-label": "교사 인증 코드", autocomplete: "off", hidden: me.role !== "teacher" })),
       h("div", { class: "comment-row" },
         h("textarea", { name: "body", maxlength: 200, rows: 2, placeholder: "댓글을 남겨 주세요 (200자)", "aria-label": "댓글 내용" }),
         h("button", { class: "btn primary small", type: "submit" }, "등록")),
       h("p", { class: "form-error", role: "alert" }));
     f.pin.addEventListener("input", () => (f.pin.value = f.pin.value.replace(/\D/g, "").slice(0, 4)));
+    f.as_teacher.addEventListener("change", () => {
+      f.teacher_code.hidden = !f.as_teacher.checked;
+      if (f.as_teacher.checked) f.teacher_code.focus();
+    });
     f.addEventListener("submit", async (e) => {
       e.preventDefault();
       if (readOnly) return toast("예시 말풍선이에요. 실제 게시판에서 댓글을 남겨 보세요!");
       const err = !f.student_no.value.trim() ? "학번(교사는 부서)을 입력해 주세요."
         : !f.author_name.value.trim() ? "이름을 입력해 주세요."
         : !/^\d{4}$/.test(f.pin.value) ? "비밀번호는 숫자 4자리로 입력해 주세요."
-        : !f.body.value.trim() ? "댓글 내용을 입력해 주세요." : null;
+        : !f.body.value.trim() ? "댓글 내용을 입력해 주세요."
+        : f.as_teacher.checked && !f.teacher_code.value.trim() ? "교사 인증 코드를 입력해 주세요." : null;
       if (err) return formError(f, err);
       formError(f, "");
       await submitWith(f, async () => {
@@ -285,6 +296,7 @@
           await rpc("add_comment", {
             p_post_id: p.id, p_student_no: f.student_no.value.trim(), p_name: f.author_name.value.trim(),
             p_pin: f.pin.value, p_body: f.body.value.trim(),
+            p_teacher_code: f.as_teacher.checked ? f.teacher_code.value.trim() : null,
           });
           saveMe({ student_no: f.student_no.value.trim(), author_name: f.author_name.value.trim() });
           f.body.value = "";
@@ -479,20 +491,61 @@
         h("b", null, i + 1), "『" + b.title + "』 ", h("small", null, b.people.size + "명"))));
   }
 
+  // ---------- 공지 띠 · 이달의 주제 (관리자 화면에서 정함) ----------
+  let settings = {};
+  let topicOnly = false;
+  const boardNoticeEl = $("#boardNotice");
+  function renderBoardNotice() {
+    const { notice, topic } = demo ? {} : settings;
+    if (!topic) topicOnly = false;
+    boardNoticeEl.hidden = !notice && !topic;
+    boardNoticeEl.replaceChildren(
+      notice ? h("div", null, "📢 ", notice) : null,
+      topic ? h("div", { class: "bn-topic" }, "🎯 이달의 주제: ", h("b", null, topic),
+        h("button", { class: "btn small" + (topicOnly ? " primary" : ""), type: "button",
+          onclick: () => { topicOnly = !topicOnly; render(); } }, topicOnly ? "모든 글 보기" : "주제 글만 보기")) : null);
+    document.querySelectorAll(".topic-join").forEach((el) => (el.hidden = !topic));
+    document.querySelectorAll("[data-topic]").forEach((el) => (el.textContent = topic ? "‘" + topic + "’" : ""));
+  }
+
+  // ---------- 참여 많은 반 TOP 3 (학번 20315 → 2학년 3반) ----------
+  const topClassesEl = $("#topClasses");
+  function classOf(sno) {
+    const m = String(sno || "").match(/^([1-3])(\d{2})\d{2}$/) || String(sno || "").match(/^([1-3])(\d)\d{2}$/);
+    return m ? m[1] + "학년 " + Number(m[2]) + "반" : null;
+  }
+  function renderTopClasses(source) {
+    const map = new Map();
+    for (const p of source) {
+      const c = p.role !== "teacher" && classOf(p.student_no);
+      if (!c) continue;
+      if (!map.has(c)) map.set(c, new Set());
+      map.get(c).add(norm(p.student_no) + "|" + norm(p.author_name || p.display_name));
+    }
+    const top = [...map.entries()].sort((a, b) => b[1].size - a[1].size).slice(0, 3);
+    topClassesEl.hidden = !top.length;
+    topClassesEl.replaceChildren(h("span", { class: "top-label" }, "🏫 참여 많은 반"),
+      ...top.map(([c, set], i) => h("span", { class: "top-class" }, h("b", null, i + 1), c + " ", h("small", null, set.size + "명"))));
+  }
+
   let lastShown = [];
   function render() {
     const q = searchEl.value.trim().toLowerCase();
     const cat = catFilter.value;
     const source = demo ? DEMO_POSTS : posts;
+    const topic = !demo && topicOnly && settings.topic;
     const shown = source.filter((p) => (!q || matches(p, q)) && inGrade(p)
-      && (!cat || (p.entries || []).some((e) => e.category === cat)));
+      && (!cat || (p.entries || []).some((e) => e.category === cat))
+      && (!topic || (p.entries || []).some((e) => e.topic === topic)));
     if (SORTS[sortSel.value]) shown.sort(SORTS[sortSel.value]);
     shown.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));   // 선생님 추천은 언제나 맨 앞
     lastShown = shown;
     countPeople(source);
     renderTopBooks(source);
+    renderTopClasses(demo ? source : posts);
+    renderBoardNotice();
     updateNotice();
-    const filtering = q || cat || grade !== "all";
+    const filtering = q || cat || grade !== "all" || topic;
     const sorted = sortSel.value !== "recent";
 
     const cards = shown.map((p) => renderPost(p));
@@ -661,7 +714,9 @@
       return;
     }
     try {
-      posts = await rpc("get_board");
+      const [board, conf] = await Promise.all([rpc("get_board"), rpc("get_settings").catch(() => null)]);
+      posts = board;
+      settings = conf || {};
       render();
       // 열어 둔 댓글 창은 댓글 수가 바뀌었을 때만 다시 불러옵니다.
       for (const id of openComments) {
@@ -787,6 +842,7 @@
           p_book_title: f.book_title.value.trim(),
           p_book_author: f.book_author.value.trim(),
           p_category: f.category.value,
+          p_topic: !!settings.topic && f.topic_join.checked,
         });
         saveMe({ role: f.elements.role.value, student_no: f.student_no.value.trim(),
           author_name: f.author_name.value.trim(), nickname: f.nickname.value.trim() });
@@ -836,6 +892,7 @@
           p_book_title: f.book_title.value.trim(),
           p_book_author: f.book_author.value.trim(),
           p_category: f.category.value,
+          p_topic: !!settings.topic && f.topic_join.checked,
         });
         if (result !== "OK") throw new Error(window.Board.ERROR_TEXT[result] || result);
         const target = posts.find((x) => x.id === addTargetId);

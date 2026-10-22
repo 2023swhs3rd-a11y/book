@@ -352,6 +352,7 @@
           h("div", { class: "entry-meta" },
             h("b", null, i === 0 ? "첫 글" : "이어쓰기 " + i),
             " · 『" + e.book_title + "』 " + e.book_author + (e.category ? " · " + e.category : "") + " · " + fmtDate(e.created_at, true),
+            e.topic ? h("span", { class: "pill topic" }, "🎯 " + e.topic) : null,
             i > 0 ? h("button", { class: "btn small danger", type: "button", onclick: async () => {
               if (await ask({ title: "이어쓰기 글 삭제", message: "이 이어쓰기 글을 삭제할까요? 되돌릴 수 없어요.", okText: "삭제", danger: true })) act("admin_delete_entry", { p_entry_id: e.id }, "글을 삭제했어요.");
             } }, "이 글 삭제") : null),
@@ -362,6 +363,7 @@
             h("ul", { class: "entry-list" }, p.comments.map((c) =>
               h("li", null,
                 h("div", { class: "entry-meta" },
+                  c.is_teacher ? h("span", { class: "pill teacher" }, "교사") : null, " ",
                   h("b", null, c.student_no + " " + c.author_name), " · " + fmtDate(c.created_at, true),
                   c.report_count ? h("span", { class: "pill report" }, "🚩 " + c.report_count) : null,
                   h("button", { class: "btn small danger", type: "button", onclick: async () => {
@@ -431,6 +433,7 @@
           "책 제목": e.book_title,
           "저자": e.book_author,
           "계열": e.category || "",
+          "이달의 주제": e.topic || "",
           "내용": e.quote,
           "작성일시": fmtDate(e.created_at, true),
           "말풍선 색": colorLabel[p.color] || p.color,
@@ -452,6 +455,7 @@
           "게시물 책": "『" + p.entries[p.entries.length - 1].book_title + "』",
           "댓글 학번/부서": c.student_no,
           "댓글 이름": c.author_name,
+          "교사 댓글": c.is_teacher ? "교사" : "",
           "댓글 내용": c.body,
           "작성일시": fmtDate(c.created_at, true),
         });
@@ -519,7 +523,7 @@
     const XLSX = await loadXlsx();
     const wb = XLSX.utils.book_new();
     const s1 = XLSX.utils.json_to_sheet(rows);
-    s1["!cols"] = [8, 8, 10, 10, 12, 10, 24, 14, 10, 60, 17, 8, 8, 14].map((w) => ({ wch: w }));
+    s1["!cols"] = [8, 8, 10, 10, 12, 10, 24, 14, 10, 12, 60, 17, 8, 8, 14].map((w) => ({ wch: w }));
     XLSX.utils.book_append_sheet(wb, s1, "전체 기록");
     const s2 = XLSX.utils.json_to_sheet(summaryRows(list));
     s2["!cols"] = [8, 10, 10, 12, 6, 8, 8, 50, 17, 17, 8].map((w) => ({ wch: w }));
@@ -533,7 +537,7 @@
     const comments = commentRows(list);
     if (comments.length) {
       const s3 = XLSX.utils.json_to_sheet(comments);
-      s3["!cols"] = [8, 16, 20, 12, 10, 60, 17].map((w) => ({ wch: w }));
+      s3["!cols"] = [8, 16, 20, 12, 10, 8, 60, 17].map((w) => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, s3, "댓글");
     }
     XLSX.writeFile(wb, name);
@@ -646,6 +650,24 @@
     } catch (e) { toast(e.message, true); }
   }
   settings.addEventListener("toggle", () => { if (settings.open) loadSettings(); });
+
+  // ---------- 게시판 공지 · 이달의 주제 ----------
+  const boardForm = $("#boardForm");
+  $("#boardBox").addEventListener("toggle", async (e) => {
+    if (!e.target.open) return;
+    try {
+      const conf = (await rpc("get_settings")) || {};
+      boardForm.notice.value = conf.notice || "";
+      boardForm.topic.value = conf.topic || "";
+    } catch (ex) { toast(ex.message, true); }
+  });
+  boardForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await rpc("admin_set_board", { p_pw: pw, p_notice: boardForm.notice.value.trim(), p_topic: boardForm.topic.value.trim() });
+      toast("게시판 공지와 이달의 주제를 저장했어요.");
+    } catch (ex) { toast(ex.message, true); }
+  });
 
   $("#teacherCodeForm").addEventListener("submit", async (e) => {
     e.preventDefault();
