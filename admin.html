@@ -6,8 +6,8 @@
   <meta name="robots" content="noindex">
   <title>관리자 · 봉일천고 독서나눔 릴레이</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022i">
-  <link rel="stylesheet" href="css/admin.css?v=20261022i">
+  <link rel="stylesheet" href="css/style.css?v=20261022j">
+  <link rel="stylesheet" href="css/admin.css?v=20261022j">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -73,7 +73,24 @@
         </div>
       </details>
 
+      <details class="settings" id="seasonBox">
+        <summary>🗄 학기 보관 · 새 학기 시작</summary>
+        <div class="class-body">
+          <p class="hint">학기가 끝나면 이번 학기 글을 이름을 붙여 보관하고 학생 게시판을 새로 시작해요.
+            보관하기 전에 엑셀 백업 파일을 먼저 내려받아요. 보관한 글은 학생 화면에서는 사라지지만
+            아래 필터의 <b>학기</b>에서 계속 볼 수 있고, 학생별 기록 카드에도 들어가요. 언제든 되돌릴 수 있어요.</p>
+          <form id="archiveForm" class="inline">
+            <input name="season_name" maxlength="30" placeholder="보관 이름 예: 2026학년도 2학기" autocomplete="off">
+            <button class="btn small primary" type="submit">엑셀 백업 후 보관</button>
+          </form>
+          <ul class="season-list" id="seasonList"></ul>
+        </div>
+      </details>
+
       <form class="filters" id="filters" onsubmit="return false">
+        <label>학기
+          <select name="season"><option value="">이번 학기</option><option value="*">전체 (보관 포함)</option></select>
+        </label>
         <label>검색어
           <input name="q" type="search" placeholder="이름, 닉네임, 책, 저자, 내용">
         </label>
@@ -121,6 +138,7 @@
       <div class="export-bar">
         <span id="resultCount"></span>
         <div>
+          <button class="btn small" id="cardsBtn" type="button" title="조건에 맞는 학생마다 한 장씩 인쇄해요">🖨 학생별 기록 카드</button>
           <button class="btn small" id="csvBtn" type="button">⬇ CSV</button>
           <button class="btn small primary" id="xlsxBtn" type="button">⬇ 엑셀(XLSX)</button>
         </div>
@@ -147,9 +165,11 @@
 
   <!-- 인쇄용 QR 포스터 -->
   <section id="poster" class="poster" aria-hidden="true"></section>
+  <!-- 인쇄용 학생별 독서 기록 카드 -->
+  <section id="cards" class="cards" aria-hidden="true"></section>
 
-  <script src="js/config.js?v=20261022i"></script>
-  <script src="js/common.js?v=20261022i"></script>
-  <script src="js/admin.js?v=20261022i"></script>
+  <script src="js/config.js?v=20261022j"></script>
+  <script src="js/common.js?v=20261022j"></script>
+  <script src="js/admin.js?v=20261022j"></script>
 </body>
 </html>

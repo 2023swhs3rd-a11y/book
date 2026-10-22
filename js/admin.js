@@ -14,7 +14,8 @@
   const reportCount = (p) => (p.reports || []).length;
 
   let pw = null;
-  let posts = [];
+  let allPosts = [];   // 보관한 학기까지 모든 글
+  let posts = [];      // 위 '학기' 필터로 고른 글 (통계 · 표 · 내보내기의 기준)
   const expanded = new Set();
 
   function storage(fn) { try { return fn(window.sessionStorage); } catch (e) { return null; } }
@@ -25,7 +26,7 @@
       const res = await rpc("admin_list", { p_pw: password });
       pw = password;
       storage((s) => s.setItem(PW_KEY, password));
-      posts = res.posts || [];
+      allPosts = res.posts || [];
       loginForm.hidden = true;
       $("#adminMain").hidden = false;
       $("#adminTools").hidden = false;
@@ -69,7 +70,7 @@
   async function reload() {
     try {
       const res = await rpc("admin_list", { p_pw: pw });
-      posts = res.posts || [];
+      allPosts = res.posts || [];
       render();
     } catch (e) { toast(e.message, true); }
   }
@@ -150,13 +151,13 @@
     return m ? { grade: +m[1], cls: +m[2], label: m[1] + "학년 " + +m[2] + "반" } : null;
   }
 
-  function classStats() {
+  function classStats(source = posts) {
     const map = new Map();
     const get = (c) => {
       if (!map.has(c.label)) map.set(c.label, { ...c, students: new Map(), posts: 0, entries: 0, comments: 0, likes: 0 });
       return map.get(c.label);
     };
-    for (const p of posts) {
+    for (const p of source) {
       if (p.role === "teacher") continue;
       const c = classOf(p.student_no);
       if (c) {
@@ -188,8 +189,8 @@
       : [h("tr", null, h("td", { colspan: 7, class: "empty" }, "학번으로 학급을 알 수 있는 글이 아직 없어요."))]));
   }
 
-  function classSheetRows() {
-    return classStats().map((r) => ({
+  function classSheetRows(source) {
+    return classStats(source).map((r) => ({
       "학년": r.grade, "반": r.cls, "참여 학생 수": r.students.size, "게시물": r.posts,
       "글(이어쓰기 포함)": r.entries, "쓴 댓글": r.comments, "받은 공감": r.likes,
       "참여 학생 명단": [...r.students.values()].sort().join(", "),
@@ -246,12 +247,19 @@
       h("td", { "data-label": "처음 작성" }, fmtDate(p.created_at, true)),
       h("td", { "data-label": "최근 활동" }, fmtDate(p.updated_at, true)),
       h("td", { "data-label": "상태" }, p.hidden ? h("span", { class: "pill off" }, "숨김") : h("span", { class: "pill on" }, "게시 중"),
-        reportCount(p) ? h("span", { class: "pill report" }, "🚩 " + reportCount(p)) : null),
+        reportCount(p) ? h("span", { class: "pill report" }, "🚩 " + reportCount(p)) : null,
+        p.pinned ? h("span", { class: "pill pin" }, "📌 추천") : null,
+        p.season ? h("span", { class: "pill season" }, p.season) : null),
       h("td", { class: "actions" },
         h("button", { class: "btn small", type: "button", onclick: () => { open ? expanded.delete(p.id) : expanded.add(p.id); render(); } }, open ? "접기" : "내용 보기"),
         h("button", { class: "btn small", type: "button",
           onclick: () => act("admin_set_hidden", { p_post_id: p.id, p_hidden: !p.hidden }, p.hidden ? "다시 보이게 했어요." : "숨겼어요.") },
           p.hidden ? "보이기" : "숨기기"),
+        p.season ? null : h("button", { class: "btn small", type: "button", title: "학생 게시판 맨 위에 '선생님 추천'으로 고정해요",
+          onclick: () => act("admin_set_pinned", { p_post_id: p.id, p_pinned: !p.pinned }, p.pinned ? "추천을 해제했어요." : "선생님 추천으로 맨 위에 고정했어요.") },
+          p.pinned ? "추천 해제" : "📌 추천"),
+        h("button", { class: "btn small", type: "button", title: "이 학생의 모든 학기 글을 한 장으로 인쇄해요",
+          onclick: () => printCards([personKey(p)]) }, "🖨 기록 카드"),
         h("button", { class: "btn small", type: "button", onclick: async () => {
           const pin = await ask({ title: "비밀번호 초기화", message: p.student_no + " " + p.author_name + " 님의 새 비밀번호 (숫자 4자리)",
             input: { inputmode: "numeric", maxlength: 4, placeholder: "숫자 4자리" }, okText: "바꾸기" });
@@ -301,7 +309,34 @@
     return [tr, detail];
   }
 
+  // ---------- 학기 ----------
+  function seasons() {
+    const map = new Map();
+    for (const p of allPosts) if (p.season) map.set(p.season, (map.get(p.season) || 0) + 1);
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0], "ko", { numeric: true }));
+  }
+
+  function renderSeasons() {
+    const sel = filters.elements.season;
+    const value = sel.value;
+    const list = seasons();
+    sel.replaceChildren(h("option", { value: "" }, "이번 학기"),
+      ...list.map(([name, n]) => h("option", { value: name }, name + " (" + n + ")")),
+      h("option", { value: "*" }, "전체 (보관 포함)"));
+    sel.value = [...sel.options].some((o) => o.value === value) ? value : "";
+    $("#seasonList").replaceChildren(...list.map(([name, n]) => h("li", null,
+      "🗄 ", h("b", null, name), h("span", null, "게시물 " + n + "개"),
+      h("button", { class: "btn small", type: "button", onclick: async () => {
+        if (await ask({ title: "보관 되돌리기", okText: "되돌리기",
+          message: "'" + name + "'에 보관한 게시물 " + n + "개를 이번 학기 게시판으로 되돌릴까요? 학생 화면에 다시 보여요." }))
+          act("admin_unarchive_season", { p_name: name }, "'" + name + "'을(를) 이번 학기로 되돌렸어요.");
+      } }, "되돌리기"))));
+  }
+
   function render() {
+    const season = filters.elements.season.value;
+    posts = season === "*" ? allPosts : allPosts.filter((p) => (p.season || "") === season);
+    renderSeasons();
     renderStats();
     renderClasses();
     const list = filtered();
@@ -317,9 +352,9 @@
   filters.addEventListener("reset", () => setTimeout(render));
 
   // ---------- 내보내기 ----------
-  function exportRows() {
+  function exportRows(list = filtered()) {
     const rows = [];
-    for (const { post: p, entries } of filtered()) {
+    for (const { post: p, entries } of list) {
       for (const e of entries) {
         const idx = p.entries.indexOf(e);
         rows.push({
@@ -336,15 +371,16 @@
           "작성일시": fmtDate(e.created_at, true),
           "말풍선 색": colorLabel[p.color] || p.color,
           "상태": p.hidden ? "숨김" : "게시 중",
+          "학기": p.season || "이번 학기",
         });
       }
     }
     return rows;
   }
 
-  function commentRows() {
+  function commentRows(list = filtered()) {
     const rows = [];
-    for (const { post: p } of filtered()) {
+    for (const { post: p } of list) {
       for (const c of p.comments || []) {
         rows.push({
           "게시물 번호": p.id,
@@ -360,8 +396,8 @@
     return rows;
   }
 
-  function summaryRows() {
-    return filtered().map(({ post: p, entries }) => ({
+  function summaryRows(list = filtered()) {
+    return list.map(({ post: p, entries }) => ({
       "학생/교사": p.role === "teacher" ? "교사" : "학생",
       "학번/부서": p.student_no,
       "이름": p.author_name,
@@ -412,32 +448,118 @@
     });
   }
 
+  // list: [{ post, entries }] — 기본은 지금 필터에 맞는 글
+  async function writeWorkbook(list, name) {
+    const rows = exportRows(list);
+    if (!rows.length) throw new Error("내보낼 글이 없어요.");
+    const XLSX = await loadXlsx();
+    const wb = XLSX.utils.book_new();
+    const s1 = XLSX.utils.json_to_sheet(rows);
+    s1["!cols"] = [8, 8, 10, 10, 12, 10, 24, 14, 10, 60, 17, 8, 8, 14].map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, s1, "전체 기록");
+    const s2 = XLSX.utils.json_to_sheet(summaryRows(list));
+    s2["!cols"] = [8, 10, 10, 12, 6, 8, 8, 50, 17, 17, 8].map((w) => ({ wch: w }));
+    XLSX.utils.book_append_sheet(wb, s2, "학생별 요약");
+    const classes = classSheetRows(list.map((x) => x.post));
+    if (classes.length) {
+      const s4 = XLSX.utils.json_to_sheet(classes);
+      s4["!cols"] = [6, 6, 10, 8, 14, 8, 8, 80].map((w) => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, s4, "학급별 현황");
+    }
+    const comments = commentRows(list);
+    if (comments.length) {
+      const s3 = XLSX.utils.json_to_sheet(comments);
+      s3["!cols"] = [8, 16, 20, 12, 10, 60, 17].map((w) => ({ wch: w }));
+      XLSX.utils.book_append_sheet(wb, s3, "댓글");
+    }
+    XLSX.writeFile(wb, name);
+  }
+
   $("#xlsxBtn").addEventListener("click", async () => {
-    const rows = exportRows();
-    if (!rows.length) return toast("내보낼 글이 없어요.", true);
+    try { await writeWorkbook(filtered(), fileName("xlsx")); } catch (e) { toast(e.message, true); }
+  });
+
+  // ---------- 학기 보관 ----------
+  $("#archiveForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = e.target.season_name;
+    const name = input.value.trim();
+    if (!name) { input.focus(); return toast("보관 이름을 입력해 주세요. 예: 2026학년도 2학기", true); }
+    if (allPosts.some((p) => p.season === name)) return toast(window.Board.ERROR_TEXT.SEASON_EXISTS, true);
+    const current = allPosts.filter((p) => !p.season);
+    if (!current.length) return toast("보관할 이번 학기 글이 없어요.", true);
+    if (!(await ask({ title: "🗄 '" + name + "'(으)로 보관할까요?", okText: "백업하고 보관", danger: true,
+      message: "이번 학기 게시물 " + current.length + "개(숨긴 글 포함)를 보관해요. 먼저 엑셀 백업 파일을 내려받고, " +
+        "학생 게시판은 빈 상태로 새로 시작돼요. 선생님 추천 고정도 풀려요. 보관한 글은 관리 화면에서 계속 볼 수 있고 되돌릴 수도 있어요." }))) return;
     try {
-      const XLSX = await loadXlsx();
-      const wb = XLSX.utils.book_new();
-      const s1 = XLSX.utils.json_to_sheet(rows);
-      s1["!cols"] = [8, 8, 10, 10, 12, 10, 24, 14, 10, 60, 17, 8, 8].map((w) => ({ wch: w }));
-      XLSX.utils.book_append_sheet(wb, s1, "전체 기록");
-      const s2 = XLSX.utils.json_to_sheet(summaryRows());
-      s2["!cols"] = [8, 10, 10, 12, 6, 8, 8, 50, 17, 17, 8].map((w) => ({ wch: w }));
-      XLSX.utils.book_append_sheet(wb, s2, "학생별 요약");
-      const classes = classSheetRows();
-      if (classes.length) {
-        const s4 = XLSX.utils.json_to_sheet(classes);
-        s4["!cols"] = [6, 6, 10, 8, 14, 8, 8, 80].map((w) => ({ wch: w }));
-        XLSX.utils.book_append_sheet(wb, s4, "학급별 현황");
-      }
-      const comments = commentRows();
-      if (comments.length) {
-        const s3 = XLSX.utils.json_to_sheet(comments);
-        s3["!cols"] = [8, 16, 20, 12, 10, 60, 17].map((w) => ({ wch: w }));
-        XLSX.utils.book_append_sheet(wb, s3, "댓글");
-      }
-      XLSX.writeFile(wb, fileName("xlsx"));
-    } catch (e) { toast(e.message, true); }
+      await writeWorkbook(current.map((p) => ({ post: p, entries: p.entries })),
+        "독서현황_" + name.replace(/[\\/:*?"<>|\s]+/g, "_") + "_백업.xlsx");
+    } catch (ex) { return toast("백업 파일을 만들지 못해 보관을 멈췄어요. " + ex.message, true); }
+    try {
+      const res = await rpc("admin_archive_season", { p_pw: pw, p_name: name });
+      input.value = "";
+      toast("게시물 " + res.count + "개를 '" + name + "'(으)로 보관했어요. 새 학기를 시작해요!");
+      await reload();
+    } catch (ex) { toast(ex.message, true); }
+  });
+
+  // ---------- 학생별 독서 기록 카드 ----------
+  // 같은 학번 + 이름의 글을 보관한 학기까지 모두 모아 한 장에 담습니다. (숨긴 글은 빼요)
+  const personKey = (p) => (p.role || "student") + "|" + String(p.student_no || "").trim() + "|" + String(p.author_name || "").replace(/\s/g, "");
+
+  function recordCard(key) {
+    const mine = allPosts.filter((p) => personKey(p) === key && !p.hidden);
+    if (!mine.length) return null;
+    const who = mine[0];
+    const rows = mine.flatMap((p) => p.entries.map((e) => ({ e, p })))
+      .sort((a, b) => new Date(a.e.created_at) - new Date(b.e.created_at));
+    const books = new Set(rows.map(({ e }) => e.book_title.replace(/\s/g, "")));
+    const cats = {};
+    for (const { e } of rows) if (e.category) cats[e.category] = (cats[e.category] || 0) + 1;
+    const likes = mine.reduce((n, p) => n + (p.like_count || 0), 0);
+    const comments = mine.reduce((n, p) => n + (p.comments || []).length, 0);
+    const nick = [...new Set(mine.map((p) => p.nickname).filter(Boolean))].join(", ");
+    return h("section", { class: "rc" },
+      h("h1", null, "📚 독서 기록 카드"),
+      h("p", { class: "rc-school" }, cfg.TITLE || "독서나눔 릴레이"),
+      h("table", { class: "rc-info" }, h("tbody", null, h("tr", null,
+        h("th", null, who.role === "teacher" ? "부서" : "학번"), h("td", null, who.student_no),
+        h("th", null, "이름"), h("td", null, who.author_name),
+        h("th", null, "닉네임"), h("td", null, nick || "–"),
+        h("th", null, "출력일"), h("td", null, fmtDate(new Date().toISOString()))))),
+      h("p", { class: "rc-sum" },
+        h("b", null, "소개한 책 " + books.size + "권"), " · 글 " + rows.length + "개 · 받은 공감 " + likes + " · 받은 댓글 " + comments,
+        h("br"), "계열: " + (Object.entries(cats).map(([c, n]) => c + " " + n).join(", ") || "–")),
+      h("table", { class: "rc-list" },
+        h("thead", null, h("tr", null, ["번호", "날짜", "책 제목", "저자", "계열", "내용"].map((t) => h("th", null, t)))),
+        h("tbody", null, rows.map(({ e, p }, i) => h("tr", null,
+          h("td", { class: "n" }, i + 1),
+          h("td", { class: "d" }, fmtDate(e.created_at), p.season ? h("br") : null, p.season ? h("small", null, p.season) : null),
+          h("td", null, "『" + e.book_title + "』"),
+          h("td", null, e.book_author),
+          h("td", { class: "d" }, e.category || "–"),
+          h("td", { class: "q" }, e.quote))))),
+      h("p", { class: "rc-foot" }, "봉일천고 독서나눔 릴레이 · 학생이 직접 쓴 글을 그대로 옮겼어요."));
+  }
+
+  function printCards(keys) {
+    const cards = keys.map(recordCard).filter(Boolean);
+    if (!cards.length) return toast("인쇄할 글이 없어요. (숨긴 글은 기록 카드에서 빠져요)", true);
+    $("#cards").replaceChildren(...cards);
+    document.body.classList.add("printing-cards");
+    setTimeout(() => {
+      window.print();
+      document.body.classList.remove("printing-cards");
+    }, 100);
+  }
+
+  $("#cardsBtn").addEventListener("click", async () => {
+    const keys = [...new Set(filtered().filter(({ post: p }) => p.role !== "teacher").map(({ post: p }) => personKey(p)))]
+      .sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
+    if (!keys.length) return toast("조건에 맞는 학생 글이 없어요.", true);
+    if (keys.length > 1 && !(await ask({ title: "🖨 학생별 기록 카드", okText: "인쇄하기",
+      message: "지금 조건에 맞는 학생 " + keys.length + "명의 기록 카드를 한 명에 한 장씩 인쇄해요. 카드에는 보관한 학기의 글까지 모두 들어가요." }))) return;
+    printCards(keys);
   });
 
   // ---------- 설정: 교사 인증 코드 · 금지어 ----------

@@ -80,6 +80,12 @@ create unique index if not exists reports_once_idx
 alter table public.reports enable row level security;
 revoke all on public.reports from anon, authenticated;
 
+-- [6차 업데이트] 선생님 추천(맨 위 고정), 학기 보관
+-- season 이 비어 있으면 이번 학기 글, 값이 있으면 그 이름으로 보관된 글(학생 화면에서 숨김)
+alter table public.posts add column if not exists pinned boolean not null default false;
+alter table public.posts add column if not exists season text;
+create index if not exists posts_season_idx on public.posts(season);
+
 create table if not exists public.admin_config (
   id            int primary key default 1 check (id = 1),
   pw_hash       text not null,
@@ -156,7 +162,7 @@ set search_path = public as $$
   from (
     select p.id, p.role, p.student_no, p.author_name, p.nickname,
            coalesce(p.nickname, p.author_name) as display_name,
-           p.color, p.created_at, p.updated_at,
+           p.color, p.pinned, p.created_at, p.updated_at,
            (select count(*) from public.comments c where c.post_id = p.id) as comment_count,
            (select count(*) from public.post_likes l where l.post_id = p.id) as like_count,
            (select json_agg(json_build_object(
@@ -165,7 +171,7 @@ set search_path = public as $$
                    order by e.created_at, e.id)
               from public.entries e where e.post_id = p.id) as entries
       from public.posts p
-     where not p.hidden
+     where not p.hidden and p.season is null
   ) b
 $$;
 
@@ -297,7 +303,7 @@ declare
   p public.posts;
   err text;
 begin
-  select * into p from public.posts where id = p_post_id and not hidden for update;
+  select * into p from public.posts where id = p_post_id and not hidden and season is null for update;
   if not found then raise exception 'NOT_FOUND'; end if;
   err := _pin_check(p, p_pin);
   if err is not null then return err; end if;
@@ -334,7 +340,7 @@ declare
   p public.posts;
   err text;
 begin
-  select * into p from public.posts where id = p_post_id and not hidden for update;
+  select * into p from public.posts where id = p_post_id and not hidden and season is null for update;
   if not found then raise exception 'NOT_FOUND'; end if;
   if not exists (select 1 from public.entries where id = p_entry_id and post_id = p.id) then
     raise exception 'NOT_FOUND';
@@ -365,7 +371,7 @@ declare
   err text;
   first_id bigint;
 begin
-  select * into p from public.posts where id = p_post_id and not hidden for update;
+  select * into p from public.posts where id = p_post_id and not hidden and season is null for update;
   if not found then raise exception 'NOT_FOUND'; end if;
   err := _pin_check(p, p_pin);
   if err is not null then return err; end if;
@@ -387,7 +393,7 @@ set search_path = public as $$
            'id', c.id, 'student_no', c.student_no, 'author_name', c.author_name,
            'body', c.body, 'created_at', c.created_at) order by c.created_at, c.id), '[]'::json)
     from public.comments c
-    join public.posts p on p.id = c.post_id and not p.hidden
+    join public.posts p on p.id = c.post_id and not p.hidden and p.season is null
    where c.post_id = p_post_id
 $$;
 
@@ -401,7 +407,7 @@ begin
   if _clean(p_student_no, 20) is null or _clean(p_name, 20) is null or _clean(p_body, 200) is null then
     return json_build_object('error', 'MISSING_FIELD');
   end if;
-  if not exists (select 1 from public.posts where id = p_post_id and not hidden) then
+  if not exists (select 1 from public.posts where id = p_post_id and not hidden and season is null) then
     return json_build_object('error', 'NOT_FOUND');
   end if;
   if (select count(*) from public.comments where post_id = p_post_id) >= 100 then
@@ -449,7 +455,7 @@ set search_path = public as $$
 declare liked boolean;
 begin
   if not _check_device(p_device) then return json_build_object('error', 'MISSING_FIELD'); end if;
-  if not exists (select 1 from public.posts where id = p_post_id and not hidden) then
+  if not exists (select 1 from public.posts where id = p_post_id and not hidden and season is null) then
     return json_build_object('error', 'NOT_FOUND');
   end if;
   delete from public.post_likes where post_id = p_post_id and device = p_device;
@@ -467,7 +473,7 @@ returns json language plpgsql security definer
 set search_path = public as $$
 begin
   if not _check_device(p_device) then return json_build_object('error', 'MISSING_FIELD'); end if;
-  if not exists (select 1 from public.posts where id = p_post_id and not hidden)
+  if not exists (select 1 from public.posts where id = p_post_id and not hidden and season is null)
      or (p_comment_id is not null and not exists
           (select 1 from public.comments where id = p_comment_id and post_id = p_post_id)) then
     return json_build_object('error', 'NOT_FOUND');
@@ -518,7 +524,7 @@ begin
     select coalesce(json_agg(b order by b.updated_at desc), '[]'::json)
     from (
       select p.id, p.role, p.student_no, p.author_name, p.nickname, p.color, p.hidden,
-             p.created_at, p.updated_at,
+             p.pinned, p.season, p.created_at, p.updated_at,
              (select count(*) from public.post_likes l where l.post_id = p.id) as like_count,
              (select json_agg(json_build_object(
                        'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
@@ -575,6 +581,47 @@ begin
   if err is not null then return json_build_object('error', err); end if;
   update public.posts set hidden = p_hidden where id = p_post_id;
   return json_build_object('ok', true);
+end $$;
+
+-- 선생님 추천: 말풍선을 맨 위에 고정하고 '선생님 추천' 표시를 답니다.
+create or replace function public.admin_set_pinned(p_pw text, p_post_id bigint, p_pinned boolean)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  update public.posts set pinned = p_pinned where id = p_post_id;
+  return json_build_object('ok', true);
+end $$;
+
+-- 학기 보관: 이번 학기 글 전체에 이름을 붙여 보관합니다(학생 화면에서는 사라지고 관리자 화면에 남음).
+create or replace function public.admin_archive_season(p_pw text, p_name text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+        n int;
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  if _clean(p_name, 30) is null then return json_build_object('error', 'MISSING_FIELD'); end if;
+  if exists (select 1 from public.posts where season = _clean(p_name, 30)) then
+    return json_build_object('error', 'SEASON_EXISTS');
+  end if;
+  update public.posts set season = _clean(p_name, 30), pinned = false where season is null;
+  get diagnostics n = row_count;
+  return json_build_object('ok', true, 'count', n);
+end $$;
+
+-- 보관 취소: 보관한 학기의 글을 다시 이번 학기 게시판으로 돌려놓습니다.
+create or replace function public.admin_unarchive_season(p_pw text, p_name text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+        n int;
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  update public.posts set season = null where season = p_name;
+  get diagnostics n = row_count;
+  return json_build_object('ok', true, 'count', n);
 end $$;
 
 -- 학생이 비밀번호를 잊었을 때 새 4자리 비밀번호로 바꿔 줍니다.
@@ -671,6 +718,9 @@ grant execute on function
   public.admin_delete_post(text, bigint),
   public.admin_delete_entry(text, bigint),
   public.admin_set_hidden(text, bigint, boolean),
+  public.admin_set_pinned(text, bigint, boolean),
+  public.admin_archive_season(text, text),
+  public.admin_unarchive_season(text, text),
   public.admin_reset_pin(text, bigint, text),
   public.admin_change_password(text, text)
 to anon, authenticated;
