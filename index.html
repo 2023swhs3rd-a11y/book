@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#fff8ec">
-  <title>독서 현황판</title>
+  <title>봉일천고 독서나눔 릴레이</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=20261022">
 </head>
 <body class="board-page">
   <header class="topbar">
@@ -15,7 +15,7 @@
       <div class="brand">
         <span class="brand-icon" aria-hidden="true">📚</span>
         <div>
-          <h1 id="boardTitle">지금 읽고 있어요</h1>
+          <h1 id="boardTitle">봉일천고 독서나눔 릴레이</h1>
           <p id="boardSubtitle" class="subtitle"></p>
         </div>
       </div>
@@ -31,6 +31,10 @@
   </header>
 
   <main>
+    <p class="rules-bar" role="note">
+      📌 독서 나눔이라는 목적에 맞지 않는 글, <b>다른 사람을 비방하는 글</b>, <b>거짓 정보</b> 등은
+      관리자가 <b>예고 없이 삭제</b>할 수 있어요.
+    </p>
     <div id="demoBanner" class="demo-banner" hidden>
       <span>👀 지금은 <b>예시 화면</b>이에요. 실제 글이 아니라 게시판이 채워지면 어떤 모습인지 보여 드려요.</span>
       <button class="btn small" type="button" data-demo-toggle>← 실제 게시판</button>
@@ -96,6 +100,7 @@
         </fieldset>
         <p class="teacher-note">🍎 선생님 글은 편지지 모양의 <b>선생님 전용 말풍선</b>으로 보여요.</p>
 
+        <p class="rules-note">📌 독서 나눔 목적에 맞지 않는 글, 타인 비방, 거짓 정보 등은 관리자가 <b>예고 없이 삭제</b>할 수 있어요.</p>
         <p class="form-error" role="alert"></p>
       </div>
       <div class="sheet-foot">
@@ -139,9 +144,9 @@
     </form>
   </dialog>
 
-  <script src="js/config.js"></script>
-  <script src="js/common.js"></script>
-  <script src="js/examples.js"></script>
-  <script src="js/board.js"></script>
+  <script src="js/config.js?v=20261022"></script>
+  <script src="js/common.js?v=20261022"></script>
+  <script src="js/examples.js?v=20261022"></script>
+  <script src="js/board.js?v=20261022"></script>
 </body>
 </html>

@@ -8,6 +8,6 @@ window.BOARD_CONFIG = {
   SUPABASE_ANON_KEY: "sb_publishable_dCwWuiFuASWG1a6BdaRN2w_leQa-JoL",
 
   // 화면 상단에 보일 게시판 이름과 안내 문구
-  TITLE: "지금 읽고 있어요",
-  SUBTITLE: "요즘 읽는 책과 마음에 남은 문장을 말풍선으로 나눠요",
+  TITLE: "봉일천고 독서나눔 릴레이",
+  SUBTITLE: "지금 읽고 있는 책과 마음에 남은 문장을 말풍선으로 이어 나눠요",
 };

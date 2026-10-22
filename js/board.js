@@ -17,7 +17,7 @@
 
   if (cfg.TITLE) {
     $("#boardTitle").textContent = cfg.TITLE;
-    document.title = cfg.TITLE + " · 독서 현황판";
+    document.title = cfg.TITLE;
   }
   $("#boardSubtitle").textContent = cfg.SUBTITLE || "";
 
