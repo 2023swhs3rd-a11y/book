@@ -599,10 +599,41 @@ dialog.sheet.ask { width: min(420px, calc(100vw - 32px)); }
   font-size: 11px; font-weight: 800; padding: 1px 7px;
 }
 
-/* ===== 이미지 저장 ===== */
-.react-row .img-btn { margin-left: auto; }
-.react-row .img-btn + .report-btn { margin-left: 0; }
-.img-sheet { max-width: 460px; }
-.img-preview { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); }
-.img-sheet .hint { margin: 10px 0 0; }
-.img-sheet a.btn { text-decoration: none; }
+/* ===== 게시판 공지 · 이달의 주제 ===== */
+.board-notice {
+  display: grid; gap: 6px; margin: 0 0 16px; padding: 12px 16px; border-radius: 14px;
+  background: #fff1d6; border: 1px solid #efcf98; color: #5a3d07; font-size: 14.5px; line-height: 1.55;
+}
+.board-notice[hidden] { display: none; }
+.board-notice .bn-topic { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.board-notice .btn { padding: 3px 12px; font-size: 13px; }
+.topic-chip {
+  font-size: 11.5px; font-weight: 800; color: #fff; background: #d9622b;
+  border-radius: 999px; padding: 0 8px; line-height: 1.7; align-self: center;
+}
+.topic-join {
+  display: flex !important; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px;
+  background: #fff4e6; border: 1px solid #f2c79d; font-weight: 600; cursor: pointer;
+}
+.topic-join[hidden] { display: none !important; }
+.topic-join input { width: 18px; height: 18px; margin: 0; flex: none; accent-color: var(--accent); }
+
+/* ===== 참여 많은 반 ===== */
+.top-class {
+  border: 1px solid #cfe3f6; background: #f1f8ff; border-radius: 999px; padding: 4px 12px 4px 5px;
+  font-size: 13.5px; font-weight: 600; white-space: nowrap;
+}
+.top-class b {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 4px;
+  border-radius: 50%; background: #3f86c9; color: #fff; font-size: 12px;
+}
+.top-class small { color: var(--muted); font-weight: 600; }
+
+/* ===== 선생님 댓글 ===== */
+.comment.teacher { border-left-color: #b5532f; background: #fff7ec; border-radius: 0 10px 10px 0; padding-right: 8px; }
+.comment .role-chip { font-size: 11px; padding: 0 7px; margin-right: 4px; }
+.teacher-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.teacher-toggle { white-space: nowrap; padding: 0 4px; }
+.teacher-toggle input, .topic-join input { width: 18px !important; height: 18px; margin: 0; padding: 0; flex: none; border: 0; box-shadow: none; accent-color: var(--accent); }
+.comment-fields.teacher-fields { grid-template-columns: auto 1fr; align-items: center; }
+.teacher-fields input[hidden] { display: none; }

@@ -17,10 +17,10 @@
   const CATEGORIES = ["소설", "시·에세이", "인문과학", "사회과학", "자연과학", "공학·기술", "예술·체육", "진로·자기계발", "기타"];
 
   // supabase/schema.sql 의 schema_version() 과 같아야 합니다. DB 구조를 바꾸면 둘 다 올려 주세요.
-  const SCHEMA_VERSION = 7;
+  const SCHEMA_VERSION = 8;
 
   // 화면 아래에 보이는 버전. 기능을 바꿀 때마다 올려 주세요.
-  const VERSION = "v1.13 (2026.10.22)";
+  const VERSION = "v1.15 (2026.10.22)";
 
   const ERROR_TEXT = {
     PIN_FORMAT: "비밀번호는 숫자 4자리로 입력해 주세요.",

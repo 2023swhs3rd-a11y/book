@@ -86,6 +86,16 @@
 .alert.backup { background: #e9f4ff; border-color: #a9cdf2; color: #1d4f7c; }
 .backup-info { color: var(--muted); margin-right: 4px; }
 
+/* 게시판 공지 · 이달의 주제 */
+.board-form { display: grid; gap: 10px; }
+.board-form label { font-size: 13px; font-weight: 600; }
+.board-form input {
+  display: block; width: 100%; margin-top: 4px; padding: 9px 12px;
+  border: 1px solid #ddd2c2; border-radius: 10px; background: #fffdf9; font-size: 15px;
+}
+.board-form .inline { display: flex; justify-content: flex-end; }
+.pill.topic { background: #ffe6d6; color: #b9541f; margin-left: 4px; }
+
 /* 학기 보관 */
 #archiveForm { display: flex; gap: 8px; flex-wrap: wrap; }
 #archiveForm input { flex: 1 1 220px; width: auto; }
