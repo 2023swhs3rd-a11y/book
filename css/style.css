@@ -250,6 +250,22 @@ dialog.sheet.teacher .sheet-head { background: #fff1de; }
 .role-toggle input:focus-visible + span { outline: 2px solid var(--accent); }
 .teacher-note { display: none; background: #fff1de; border: 1px solid #ecc99b; border-radius: 12px; padding: 10px 12px; font-size: 13.5px; }
 form.is-teacher .color-field { display: none; }
+.teacher-only { display: none !important; }
+form.is-teacher .teacher-only { display: block !important; }
+
+/* 이어 쓰기 · 수정 버튼 */
+.who-actions { display: flex; flex-direction: column; align-items: flex-end; margin-left: auto; }
+.who-actions .link-btn { margin-left: 0; }
+.mini-btn {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 12px; padding: 2px 4px;
+}
+.mini-btn:hover { color: var(--ink); text-decoration: underline; }
+.sheet-foot .spacer { flex: 1; }
+.sheet select {
+  display: block; width: 100%; margin-top: 4px; padding: 10px 12px;
+  border: 1px solid #ddd2c2; border-radius: 12px; background: #fffdf9; font-size: 16px;
+}
 form.is-teacher .teacher-note { display: block; }
 
 /* 글쓰기 버튼 (모바일) */

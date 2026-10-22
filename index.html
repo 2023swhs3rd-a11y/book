@@ -4,10 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#fff8ec">
+  <meta name="robots" content="noindex, nofollow">
   <title>봉일천고 독서나눔 릴레이</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022">
+  <link rel="stylesheet" href="css/style.css?v=20261022b">
 </head>
 <body class="board-page">
   <header class="topbar">
@@ -75,6 +76,9 @@
               <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required placeholder="숫자 4자리" autocomplete="new-password">
             </label>
           </div>
+          <label class="teacher-only">교사 인증 코드 <b class="req">*</b>
+            <input name="teacher_code" type="password" maxlength="40" placeholder="관리자에게 받은 교사 인증 코드" autocomplete="off">
+          </label>
           <p class="hint">말풍선 아래에 <b>학번(교사는 부서) · 이름 · 닉네임</b> 순서로 표시돼요.<br>비밀번호는 나중에 내용을 이어 쓸 때 필요해요.</p>
         </fieldset>
 
@@ -144,9 +148,47 @@
     </form>
   </dialog>
 
-  <script src="js/config.js?v=20261022"></script>
-  <script src="js/common.js?v=20261022"></script>
-  <script src="js/examples.js?v=20261022"></script>
-  <script src="js/board.js?v=20261022"></script>
+  <!-- 내 글 고치기·지우기 -->
+  <dialog id="editDialog" class="sheet">
+    <form id="editForm" method="dialog" novalidate>
+      <div class="sheet-head">
+        <h2>내 글 고치기 · 지우기</h2>
+        <button type="button" class="icon-btn" data-close aria-label="닫기">✕</button>
+      </div>
+      <div class="sheet-body">
+        <p class="add-target" id="editTarget"></p>
+        <label>비밀번호 4자리 <b class="req">*</b>
+          <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required placeholder="처음 글 쓸 때 정한 숫자 4자리" autocomplete="off">
+        </label>
+        <label id="entryPick"><span data-label>고칠 글</span>
+          <select name="entry"></select>
+        </label>
+        <div class="row">
+          <label>책 제목 <b class="req">*</b>
+            <input name="book_title" maxlength="100" required autocomplete="off">
+          </label>
+          <label>저자 <b class="req">*</b>
+            <input name="book_author" maxlength="50" required autocomplete="off">
+          </label>
+        </div>
+        <label>내용 <b class="req">*</b>
+          <textarea name="quote" maxlength="500" rows="5" required></textarea>
+          <span class="counter"><span data-count>0</span> / 500</span>
+        </label>
+        <p class="form-error" role="alert"></p>
+      </div>
+      <div class="sheet-foot">
+        <button type="button" class="btn danger" id="deleteBtn">이 글 지우기</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>취소</button>
+        <button type="submit" class="btn primary">고친 내용 저장</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="js/config.js?v=20261022b"></script>
+  <script src="js/common.js?v=20261022b"></script>
+  <script src="js/examples.js?v=20261022b"></script>
+  <script src="js/board.js?v=20261022b"></script>
 </body>
 </html>
