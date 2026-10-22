@@ -86,6 +86,31 @@ tr.detail .entry-list li { --bd: var(--line); }
 .admin-comments { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line); }
 .admin-comments h4 { margin: 0 0 8px; font-size: 14px; }
 
+/* 학급별 참여 현황 */
+.class-body { padding: 0 16px 16px; }
+.class-body .hint { font-size: 12.5px; color: var(--muted); margin: 0 0 10px; }
+.class-table td.names { font-size: 12.5px; color: var(--muted); max-width: 420px; }
+.class-table td:nth-child(n+2):nth-child(-n+6) { font-variant-numeric: tabular-nums; }
+
+/* 인쇄용 QR 포스터 (화면에서는 숨김) */
+.poster { display: none; }
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body.printing-poster > *:not(#poster) { display: none !important; }
+  body.printing-poster { background: #fff; }
+  body.printing-poster #poster {
+    display: flex; flex-direction: column; align-items: center; text-align: center;
+    min-height: 260mm; justify-content: center; gap: 8mm; color: #2b2620;
+  }
+  #poster .p-icon { font-size: 60pt; line-height: 1; }
+  #poster h1 { margin: 0; font-size: 34pt; letter-spacing: -0.02em; }
+  #poster .p-sub { margin: 0; font-size: 15pt; color: #5c5248; }
+  #poster .p-qr { width: 120mm; height: 120mm; padding: 6mm; border: 2mm solid #e8743b; border-radius: 8mm; }
+  #poster .p-qr svg { width: 100%; height: 100%; display: block; }
+  #poster .p-steps { margin: 0; font-size: 14pt; line-height: 1.7; }
+  #poster .p-url { font-size: 12pt; color: #6b6157; word-break: break-all; }
+}
+
 /* 모바일: 표 대신 카드 */
 @media (max-width: 900px) {
   .settings-body { grid-template-columns: 1fr; }

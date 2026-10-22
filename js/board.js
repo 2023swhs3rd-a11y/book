@@ -293,6 +293,29 @@
     likes: (a, b) => (b.like_count || 0) - (a.like_count || 0),
   };
 
+  // ---------- 많이 소개된 책 ----------
+  const topBooksEl = $("#topBooks");
+  function renderTopBooks(source) {
+    const books = new Map();   // 띄어쓰기를 뺀 제목 → { title, people }
+    for (const p of source) {
+      for (const e of p.entries || []) {
+        const key = e.book_title.replace(/\s/g, "");
+        if (!books.has(key)) books.set(key, { title: e.book_title, people: new Set() });
+        books.get(key).people.add(p.id);
+      }
+    }
+    const top = [...books.values()].filter((b) => b.people.size >= 2)
+      .sort((a, b) => b.people.size - a.people.size).slice(0, 5);
+    topBooksEl.hidden = !top.length;
+    const q = searchEl.value.trim();
+    topBooksEl.replaceChildren(h("span", { class: "top-label" }, "🏆 많이 소개된 책"),
+      ...top.map((b, i) => h("button", { type: "button", class: "top-book" + (q === b.title ? " on" : ""),
+        title: "이 책 글만 보기",
+        onclick: () => { searchEl.value = q === b.title ? "" : b.title; render(); } },
+        h("b", null, i + 1), "『" + b.title + "』 ", h("small", null, b.people.size + "명"))));
+  }
+
+  let lastShown = [];
   function render() {
     const q = searchEl.value.trim().toLowerCase();
     const cat = catFilter.value;
@@ -300,6 +323,8 @@
     const shown = source.filter((p) => (!q || matches(p, q)) && inGrade(p)
       && (!cat || (p.entries || []).some((e) => e.category === cat)));
     if (SORTS[sortSel.value]) shown.sort(SORTS[sortSel.value]);
+    lastShown = shown;
+    renderTopBooks(source);
     const filtering = q || cat || grade !== "all";
     const sorted = sortSel.value !== "recent";
 
@@ -326,6 +351,74 @@
     else statusEl.textContent = filtering ? shown.length + "개를 찾았어요." : "";
     statusEl.hidden = !statusEl.textContent;
   }
+
+  // ---------- 교실 전시 모드: 지금 보이는 말풍선을 하나씩 크게, 10초마다 넘김 ----------
+  const SHOW_MS = 10000;
+  const showcase = $("#showcase");
+  let showList = [], showIdx = 0, showTimer = null, showPaused = false;
+
+  function showSlide() {
+    const p = showList[showIdx];
+    const e = p.entries[p.entries.length - 1];
+    const teacher = p.role === "teacher";
+    $("#showStage").replaceChildren(h("article", { class: "show-card c-" + p.color + (teacher ? " teacher" : "") },
+      teacher ? h("span", { class: "teacher-tag" }, "🍎 선생님의 책") : null,
+      bookLine(e),
+      h("p", { class: "show-quote" }, e.quote),
+      h("footer", { class: "show-who" },
+        teacher ? "선생님 · " : "", p.student_no + " " + (p.author_name || p.display_name),
+        p.nickname ? " (" + p.nickname + ")" : "",
+        p.entries.length > 1 ? h("span", { class: "show-more" }, "📖 " + (p.entries.length - 1) + "번 이어 씀") : null,
+        p.like_count ? h("span", { class: "show-more" }, "❤️ " + p.like_count) : null)));
+    $("#showCount").textContent = (showIdx + 1) + " / " + showList.length;
+    const bar = $("#showProgress");
+    bar.style.animation = "none";
+    void bar.offsetWidth;   // 진행 막대 애니메이션을 처음부터 다시
+    bar.style.animation = showPaused ? "none" : "showbar " + SHOW_MS / 1000 + "s linear";
+    clearTimeout(showTimer);
+    if (!showPaused) showTimer = setTimeout(() => moveShow(1), SHOW_MS);
+  }
+  function moveShow(d) {
+    showIdx = (showIdx + d + showList.length) % showList.length;
+    showSlide();
+  }
+  function openShow() {
+    showList = lastShown.filter((p) => p.entries && p.entries.length);
+    if (!showList.length) return toast("보여 줄 말풍선이 없어요.", true);
+    showIdx = 0;
+    showPaused = false;
+    $("#showPause").textContent = "⏸";
+    $("#showTitle").textContent = cfg.TITLE || "독서나눔 릴레이";
+    showcase.hidden = false;
+    document.body.classList.add("show-open");
+    if (showcase.requestFullscreen) showcase.requestFullscreen().catch(() => {});
+    showSlide();
+  }
+  function closeShow() {
+    clearTimeout(showTimer);
+    showcase.hidden = true;
+    document.body.classList.remove("show-open");
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+  $("#showBtn").addEventListener("click", openShow);
+  $("#showClose").addEventListener("click", closeShow);
+  $("#showPrev").addEventListener("click", () => moveShow(-1));
+  $("#showNext").addEventListener("click", () => moveShow(1));
+  $("#showPause").addEventListener("click", () => {
+    showPaused = !showPaused;
+    $("#showPause").textContent = showPaused ? "▶︎ 재생" : "⏸";
+    showSlide();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (showcase.hidden) return;
+    if (e.key === "ArrowRight") moveShow(1);
+    else if (e.key === "ArrowLeft") moveShow(-1);
+    else if (e.key === "Escape") closeShow();
+    else if (e.key === " ") { e.preventDefault(); $("#showPause").click(); }
+  });
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && !showcase.hidden) closeShow();
+  });
 
   // ---------- 예시 화면 ----------
   const { EXAMPLE_POST, DEMO_POSTS } = window.BoardExamples;
@@ -655,7 +748,7 @@
 
   load();
   setInterval(() => {
-    if (document.visibilityState !== "visible" || demo || postDialog.open || addDialog.open || editDialog.open) return;
+    if (document.visibilityState !== "visible" || demo || !showcase.hidden || postDialog.open || addDialog.open || editDialog.open) return;
     // 댓글을 쓰는 중이면 화면을 다시 그리지 않습니다.
     const typing = [...boardEl.querySelectorAll(".comment-form textarea, .comment-form input[name=pin]")]
       .some((el) => el.value || el === document.activeElement);
