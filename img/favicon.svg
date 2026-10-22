@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#e8743b"/>
+  <!-- 펼친 책 -->
+  <path d="M32 19c-5-4-12-5-20-4v30c8-1 15 0 20 4z" fill="#fff"/>
+  <path d="M32 19c5-4 12-5 20-4v30c-8-1-15 0-20 4z" fill="#fff3e6"/>
+  <path d="M32 19v30" stroke="#b9541f" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M17 23c4-.4 7.5 0 10.5 1.4M17 29c4-.4 7.5 0 10.5 1.4M17 35c4-.4 7.5 0 10.5 1.4M47 23c-4-.4-7.5 0-10.5 1.4M47 29c-4-.4-7.5 0-10.5 1.4M47 35c-4-.4-7.5 0-10.5 1.4" stroke="#f0a36f" stroke-width="2" stroke-linecap="round" fill="none"/>
+</svg>
