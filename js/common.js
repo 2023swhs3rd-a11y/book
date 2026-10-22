@@ -20,7 +20,7 @@
   const SCHEMA_VERSION = 8;
 
   // 화면 아래에 보이는 버전. 기능을 바꿀 때마다 올려 주세요.
-  const VERSION = "v1.15 (2026.10.22)";
+  const VERSION = "v1.16 (2026.10.22)";
 
   const ERROR_TEXT = {
     PIN_FORMAT: "비밀번호는 숫자 4자리로 입력해 주세요.",

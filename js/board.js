@@ -999,6 +999,28 @@
     });
   });
 
+  // ---------- 사용법 (처음 온 기기에서는 한 번 저절로 열림) ----------
+  const helpDialog = $("#helpDialog");
+  function openHelp() {
+    helpDialog.showModal();
+    helpDialog.querySelector(".help-body").scrollTop = 0;
+  }
+  $("#helpBtn").addEventListener("click", openHelp);
+  helpDialog.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => helpDialog.close()));
+  helpDialog.addEventListener("click", (e) => { if (e.target === helpDialog) helpDialog.close(); });
+  helpDialog.querySelectorAll(".help-toc a").forEach((a) => a.addEventListener("click", (e) => {
+    e.preventDefault();
+    helpDialog.querySelector(a.getAttribute("href")).scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
+  helpDialog.querySelector("[data-demo-help]").addEventListener("click", () => {
+    helpDialog.close();
+    if (!demo) setDemo(true);
+  });
+  if (!store("reading-board-help-seen", false)) {
+    keep("reading-board-help-seen", true);
+    setTimeout(openHelp, 600);
+  }
+
   // ---------- 시작 ----------
   let searchTimer;
   searchEl.addEventListener("input", () => {
@@ -1008,7 +1030,7 @@
 
   load();
   setInterval(() => {
-    if (document.visibilityState !== "visible" || demo || !showcase.hidden || postDialog.open || addDialog.open || editDialog.open) return;
+    if (document.visibilityState !== "visible" || demo || !showcase.hidden || postDialog.open || addDialog.open || editDialog.open || helpDialog.open) return;
     // 댓글을 쓰는 중이면 화면을 다시 그리지 않습니다.
     const typing = [...boardEl.querySelectorAll(".comment-form textarea, .comment-form input[name=pin]")]
       .some((el) => el.value || el === document.activeElement);
