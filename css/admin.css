@@ -25,7 +25,7 @@
 .setting textarea { resize: vertical; line-height: 1.6; }
 .setting .inline { display: flex; gap: 8px; margin-top: 6px; }
 .setting .inline.end { justify-content: flex-end; }
-.stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
+.stats { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; margin-bottom: 16px; }
 .stat {
   background: var(--card); border: 1px solid var(--line); border-radius: 16px;
   padding: 14px 16px; display: flex; flex-direction: column;
@@ -78,40 +78,20 @@ tr.detail td { background: #fffbf4; }
 .entry-meta b { color: var(--ink); }
 .entry-meta .btn { margin-left: auto; }
 tr.detail .entry-list li { --bd: var(--line); }
+.admin-comments { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.admin-comments h4 { margin: 0 0 8px; font-size: 14px; }
 
 /* 모바일: 표 대신 카드 */
 @media (max-width: 900px) {
   .settings-body { grid-template-columns: 1fr; }
-  .settings { background: var(--card); border: 1px solid var(--line); border-radius: 16px; margin-bottom: 16px; }
-.settings summary { cursor: pointer; padding: 14px 16px; font-weight: 700; }
-.settings-body { display: grid; grid-template-columns: 1fr 1.4fr; gap: 20px; padding: 0 16px 16px; }
-.setting h3 { margin: 0 0 4px; font-size: 15px; display: flex; gap: 8px; align-items: center; }
-.setting .hint { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
-.setting input, .setting textarea {
-  width: 100%; padding: 9px 12px; border: 1px solid #ddd2c2; border-radius: 10px; background: #fffdf9; font-size: 15px;
-}
-.setting textarea { resize: vertical; line-height: 1.6; }
-.setting .inline { display: flex; gap: 8px; margin-top: 6px; }
-.setting .inline.end { justify-content: flex-end; }
-.stats { grid-template-columns: repeat(3, 1fr); }
+  .stats { grid-template-columns: repeat(4, 1fr); }
   .filters { grid-template-columns: 1fr 1fr; }
   .filters label:first-child { grid-column: 1 / -1; }
   .filter-actions { grid-column: 1 / -1; }
 }
 @media (max-width: 640px) {
   .admin-page main { padding-bottom: 40px; }
-  .settings { background: var(--card); border: 1px solid var(--line); border-radius: 16px; margin-bottom: 16px; }
-.settings summary { cursor: pointer; padding: 14px 16px; font-weight: 700; }
-.settings-body { display: grid; grid-template-columns: 1fr 1.4fr; gap: 20px; padding: 0 16px 16px; }
-.setting h3 { margin: 0 0 4px; font-size: 15px; display: flex; gap: 8px; align-items: center; }
-.setting .hint { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
-.setting input, .setting textarea {
-  width: 100%; padding: 9px 12px; border: 1px solid #ddd2c2; border-radius: 10px; background: #fffdf9; font-size: 15px;
-}
-.setting textarea { resize: vertical; line-height: 1.6; }
-.setting .inline { display: flex; gap: 8px; margin-top: 6px; }
-.setting .inline.end { justify-content: flex-end; }
-.stats { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stats { grid-template-columns: repeat(4, 1fr); gap: 8px; }
   .stat { padding: 10px 12px; border-radius: 12px; }
   .stat b { font-size: 20px; }
   .stat span { font-size: 12px; }

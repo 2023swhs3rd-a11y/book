@@ -69,5 +69,26 @@
     ]),
   ];
 
+  // 예시 댓글 (읽기 전용)
+  function comments(p, list) {
+    p.comments = list.map(([student_no, author_name, body, min], i) => ({
+      id: p.id + "-c" + i, student_no, author_name, body, created_at: ago(min),
+    }));
+    p.comment_count = p.comments.length;
+  }
+  comments(EXAMPLE_POST, [
+    ["20322", "이하은", "저도 그 장면에서 마음이 쿵 했어요. 다 읽으면 감상 또 올려 주세요!", 20],
+  ]);
+  comments(DEMO_POSTS[0], [
+    ["10203", "김민준", "저는 친구를 길들이고 있는 것 같아요 ㅎㅎ 수업 시간에 이야기해요!", 10],
+    ["20107", "박지호", "어린 왕자 다시 읽어 보고 싶어졌어요.", 6],
+  ]);
+  comments(DEMO_POSTS[1], [
+    ["10315", "이서연", "수레바퀴 아래서도 재밌나요? 다음에 읽어 볼게요.", 15],
+  ]);
+  comments(DEMO_POSTS[3], [
+    ["국어과", "김하늘", "사회 시간과 연결한 점이 정말 좋아요. 발표 때 소개해 줄래요?", 30],
+  ]);
+
   window.BoardExamples = { EXAMPLE_POST, DEMO_POSTS };
 })();

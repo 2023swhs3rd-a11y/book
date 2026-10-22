@@ -38,6 +38,22 @@ create index if not exists entries_post_id_idx on public.entries(post_id);
 alter table public.posts add column if not exists role text not null default 'student'
   check (role in ('student', 'teacher'));
 
+-- [4차 업데이트] 말풍선 댓글. 교사는 student_no 칸에 부서를 적습니다.
+create table if not exists public.comments (
+  id            bigint generated always as identity primary key,
+  post_id       bigint not null references public.posts(id) on delete cascade,
+  student_no    text not null check (char_length(student_no) between 1 and 20),
+  author_name   text not null check (char_length(author_name) between 1 and 20),
+  body          text not null check (char_length(body) between 1 and 200),
+  pin_hash      text not null,
+  fail_count    int not null default 0,
+  locked_until  timestamptz,
+  created_at    timestamptz not null default now()
+);
+create index if not exists comments_post_id_idx on public.comments(post_id);
+alter table public.comments enable row level security;
+revoke all on public.comments from anon, authenticated;
+
 create table if not exists public.admin_config (
   id            int primary key default 1 check (id = 1),
   pw_hash       text not null,
@@ -102,6 +118,7 @@ set search_path = public as $$
     select p.id, p.role, p.student_no, p.author_name, p.nickname,
            coalesce(p.nickname, p.author_name) as display_name,
            p.color, p.created_at, p.updated_at,
+           (select count(*) from public.comments c where c.post_id = p.id) as comment_count,
            (select json_agg(json_build_object(
                      'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
                      'book_author', e.book_author, 'created_at', e.created_at)
@@ -309,6 +326,80 @@ begin
   return 'OK';
 end $$;
 
+-- 댓글 목록 (비밀번호는 내보내지 않습니다)
+create or replace function public.get_comments(p_post_id bigint)
+returns json language sql stable security definer
+set search_path = public as $$
+  select coalesce(json_agg(json_build_object(
+           'id', c.id, 'student_no', c.student_no, 'author_name', c.author_name,
+           'body', c.body, 'created_at', c.created_at) order by c.created_at, c.id), '[]'::json)
+    from public.comments c
+    join public.posts p on p.id = c.post_id and not p.hidden
+   where c.post_id = p_post_id
+$$;
+
+-- 댓글 쓰기: {"ok": true} 또는 {"error": 코드}
+create or replace function public.add_comment(
+  p_post_id bigint, p_student_no text, p_name text, p_pin text, p_body text)
+returns json language plpgsql security definer
+set search_path = public, extensions as $$
+begin
+  if coalesce(p_pin, '') !~ '^[0-9]{4}$' then return json_build_object('error', 'PIN_FORMAT'); end if;
+  if _clean(p_student_no, 20) is null or _clean(p_name, 20) is null or _clean(p_body, 200) is null then
+    return json_build_object('error', 'MISSING_FIELD');
+  end if;
+  if not exists (select 1 from public.posts where id = p_post_id and not hidden) then
+    return json_build_object('error', 'NOT_FOUND');
+  end if;
+  if (select count(*) from public.comments where post_id = p_post_id) >= 100 then
+    return json_build_object('error', 'TOO_MANY_COMMENTS');
+  end if;
+  -- 도배 방지: 같은 학번·이름으로는 20초에 댓글 하나
+  if exists (select 1 from public.comments
+              where lower(student_no) = lower(_clean(p_student_no, 20))
+                and author_name = _clean(p_name, 20)
+                and created_at > now() - interval '20 seconds') then
+    return json_build_object('error', 'TOO_FAST_COMMENT');
+  end if;
+  if _has_banned(p_name, p_body) then return json_build_object('error', 'BANNED_WORD'); end if;
+
+  insert into public.comments (post_id, student_no, author_name, body, pin_hash)
+  values (p_post_id, _clean(p_student_no, 20), _clean(p_name, 20), _clean(p_body, 200),
+          crypt(p_pin, gen_salt('bf')));
+  return json_build_object('ok', true);
+end $$;
+
+-- 내 댓글 지우기 (5회 틀리면 10분 잠금). 반환값: 'OK' | 'BAD_PIN' | 'LOCKED'
+create or replace function public.delete_comment(p_comment_id bigint, p_pin text)
+returns text language plpgsql security definer
+set search_path = public, extensions as $$
+declare c public.comments;
+begin
+  select * into c from public.comments where id = p_comment_id for update;
+  if not found then raise exception 'NOT_FOUND'; end if;
+  if c.locked_until is not null and c.locked_until > now() then return 'LOCKED'; end if;
+  if c.pin_hash <> crypt(coalesce(p_pin, ''), c.pin_hash) then
+    update public.comments
+       set fail_count = case when c.fail_count + 1 >= 5 then 0 else c.fail_count + 1 end,
+           locked_until = case when c.fail_count + 1 >= 5 then now() + interval '10 minutes' end
+     where id = c.id;
+    return 'BAD_PIN';
+  end if;
+  delete from public.comments where id = c.id;
+  return 'OK';
+end $$;
+
+-- 관리자: 댓글 삭제
+create or replace function public.admin_delete_comment(p_pw text, p_comment_id bigint)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  delete from public.comments where id = p_comment_id;
+  return json_build_object('ok', true);
+end $$;
+
 -- ---------------------------------------------------------------------
 -- 관리자용 함수: 모두 관리자 비밀번호를 확인하고
 -- 성공하면 {"ok": true, ...}, 실패하면 {"error": "코드"} 를 돌려줍니다.
@@ -328,7 +419,11 @@ begin
                        'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
                        'book_author', e.book_author, 'created_at', e.created_at)
                      order by e.created_at, e.id)
-                from public.entries e where e.post_id = p.id) as entries
+                from public.entries e where e.post_id = p.id) as entries,
+             (select json_agg(json_build_object(
+                       'id', c.id, 'student_no', c.student_no, 'author_name', c.author_name,
+                       'body', c.body, 'created_at', c.created_at) order by c.created_at, c.id)
+                from public.comments c where c.post_id = p.id) as comments
         from public.posts p
     ) b));
 end $$;
@@ -451,6 +546,10 @@ grant execute on function
   public.add_entry(bigint, text, text, text, text),
   public.edit_entry(bigint, bigint, text, text, text, text),
   public.delete_own(bigint, bigint, text),
+  public.get_comments(bigint),
+  public.add_comment(bigint, text, text, text, text),
+  public.delete_comment(bigint, text),
+  public.admin_delete_comment(text, bigint),
   public.admin_set_teacher_code(text, text),
   public.admin_get_words(text),
   public.admin_set_words(text, text[]),

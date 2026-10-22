@@ -16,6 +16,15 @@
 
   let posts = [];
   let addTargetId = null;
+  const openComments = new Set();   // 댓글 창을 열어 둔 말풍선
+  const commentCache = {};          // 말풍선 번호 → 댓글 목록
+  const expanded = new Set();       // '더 읽기'로 펼친 글
+  let flashId = null;               // 방금 쓴 말풍선
+
+  // 같은 기기에서는 학번·이름을 기억해 다음에 자동으로 채웁니다.
+  const ME_KEY = "reading-board-me";
+  function loadMe() { try { return JSON.parse(localStorage.getItem(ME_KEY)) || {}; } catch (e) { return {}; } }
+  function saveMe(patch) { try { localStorage.setItem(ME_KEY, JSON.stringify(Object.assign(loadMe(), patch))); } catch (e) {} }
 
   if (cfg.TITLE) {
     $("#boardTitle").textContent = cfg.TITLE;
@@ -30,7 +39,7 @@
       h("span", { class: "book-author" }, e.book_author));
   }
 
-  // 말풍선 아래 작성자 표시: 학번(교사는 부서) · 이름 · 닉네임
+  // 말풍선 아래 작성자 표시: 학번(교사는 부서) 이름 (닉네임)
   function identity(p) {
     const teacher = p.role === "teacher";
     return h("div", { class: "ident" },
@@ -38,7 +47,7 @@
         teacher ? h("span", { class: "role-chip" }, "선생님") : null,
         p.student_no ? h("span", { class: "sno" }, p.student_no) : null,
         h("span", { class: "name" }, p.author_name || p.display_name),
-        p.nickname ? h("span", { class: "nick" }, p.nickname) : null),
+        p.nickname ? h("span", { class: "nick" }, "(" + p.nickname + ")") : null),
       h("time", { datetime: p.created_at, title: fmtDate(p.created_at, true) }, timeAgo(p.updated_at)));
   }
 
@@ -59,7 +68,7 @@
         teacher ? h("span", { class: "teacher-tag" }, "🍎 선생님의 책") : null,
         more.length ? h("span", { class: "badge" }, "📖 " + more.length + "번 이어 씀") : null,
         bookLine(first),
-        h("p", { class: "quote" }, first.quote)),
+        quote(first)),
       more.length
         ? h("ol", { class: "thread" },
             more.map((e, i) => {
@@ -67,7 +76,7 @@
               return h("li", { class: "bubble more" },
                 h("span", { class: "more-label" }, "+ 이어서 · " + timeAgo(e.created_at)),
                 sameBook ? null : bookLine(e),
-                h("p", { class: "quote" }, e.quote));
+                quote(e));
             }))
         : null,
       h("footer", { class: "who" },
@@ -79,7 +88,120 @@
             "＋ 이어 쓰기"),
           h("button", { class: "mini-btn", type: "button", title: "내 글 고치기·지우기",
             onclick: () => (demo || example ? toast("예시 말풍선이에요.") : openEdit(p.id)) },
-            "✎ 수정"))));
+            "✎ 수정"))),
+      commentSection(p, demo || example));
+  }
+
+  // 6줄이 넘는 글은 접어 두고 '더 읽기'로 펼칩니다. (넘치는지는 화면에 놓인 뒤 clampCheck 에서 확인)
+  function quote(e) {
+    return h("p", { class: "quote" + (expanded.has(String(e.id)) ? "" : " clamp"), dataset: { eid: e.id } }, e.quote);
+  }
+  function clampCheck() {
+    boardEl.querySelectorAll(".quote.clamp").forEach((q) => {
+      if (q.scrollHeight <= q.clientHeight + 2 || q.nextElementSibling?.classList.contains("more-read")) return;
+      q.after(h("button", { class: "more-read", type: "button", onclick: (ev) => {
+        expanded.add(q.dataset.eid);
+        q.classList.remove("clamp");
+        ev.currentTarget.remove();
+      } }, "더 읽기 ▾"));
+    });
+  }
+
+  // ---------- 댓글 ----------
+  function commentSection(p, readOnly) {
+    const count = readOnly && p.comments ? p.comments.length : (p.comment_count || 0);
+    const open = openComments.has(p.id);
+    const wrap = h("section", { class: "comments-wrap" + (open ? " open" : "") });
+    const toggle = h("button", { class: "comment-toggle", type: "button", "aria-expanded": String(open),
+      onclick: () => {
+        if (openComments.has(p.id)) openComments.delete(p.id); else openComments.add(p.id);
+        wrap.replaceWith(commentSection(p, readOnly));
+        if (!readOnly && openComments.has(p.id)) fetchComments(p.id);
+      } },
+      "💬 댓글 ", h("b", null, count), open ? " ▴" : " ▾");
+    wrap.append(toggle);
+    if (!open) return wrap;
+
+    const list = h("ul", { class: "comment-list", dataset: { post: p.id } });
+    const items = readOnly ? (p.comments || []) : commentCache[p.id];
+    fillComments(list, items, readOnly);
+    wrap.append(list, commentForm(p, readOnly));
+    return wrap;
+  }
+
+  function fillComments(list, items, readOnly) {
+    if (!items) return list.replaceChildren(h("li", { class: "comment-empty" }, "불러오는 중…"));
+    if (!items.length) return list.replaceChildren(h("li", { class: "comment-empty" }, "첫 댓글을 남겨 보세요."));
+    list.replaceChildren(...items.map((c) => h("li", { class: "comment" },
+      h("div", { class: "comment-meta" },
+        h("b", null, c.student_no), " ", h("b", null, c.author_name),
+        h("time", { datetime: c.created_at, title: fmtDate(c.created_at, true) }, timeAgo(c.created_at)),
+        readOnly ? null : h("button", { class: "mini-btn", type: "button", onclick: () => removeComment(c) }, "삭제")),
+      h("p", null, c.body))));
+  }
+
+  async function fetchComments(postId) {
+    try {
+      const items = await rpc("get_comments", { p_post_id: postId });
+      commentCache[postId] = items;
+      const post = posts.find((x) => x.id === postId);
+      if (post) post.comment_count = items.length;
+      const list = boardEl.querySelector('.comment-list[data-post="' + postId + '"]');
+      if (list) {
+        fillComments(list, items, false);
+        const b = list.parentElement.querySelector(".comment-toggle b");
+        if (b) b.textContent = items.length;
+      }
+    } catch (e) { toast(e.message, true); }
+  }
+
+  function commentForm(p, readOnly) {
+    const me = loadMe();
+    const f = h("form", { class: "comment-form", novalidate: true },
+      h("div", { class: "comment-fields" },
+        h("input", { name: "student_no", maxlength: 20, placeholder: "학번/부서", "aria-label": "학번 또는 부서", value: me.student_no || "" }),
+        h("input", { name: "author_name", maxlength: 20, placeholder: "이름", "aria-label": "이름", value: me.author_name || "" }),
+        h("input", { name: "pin", type: "password", inputmode: "numeric", maxlength: 4, placeholder: "비번 4자리", "aria-label": "비밀번호 4자리", autocomplete: "off" })),
+      h("div", { class: "comment-row" },
+        h("textarea", { name: "body", maxlength: 200, rows: 2, placeholder: "댓글을 남겨 주세요 (200자)", "aria-label": "댓글 내용" }),
+        h("button", { class: "btn primary small", type: "submit" }, "등록")),
+      h("p", { class: "form-error", role: "alert" }));
+    f.pin.addEventListener("input", () => (f.pin.value = f.pin.value.replace(/\D/g, "").slice(0, 4)));
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (readOnly) return toast("예시 말풍선이에요. 실제 게시판에서 댓글을 남겨 보세요!");
+      const err = !f.student_no.value.trim() ? "학번(교사는 부서)을 입력해 주세요."
+        : !f.author_name.value.trim() ? "이름을 입력해 주세요."
+        : !/^\d{4}$/.test(f.pin.value) ? "비밀번호는 숫자 4자리로 입력해 주세요."
+        : !f.body.value.trim() ? "댓글 내용을 입력해 주세요." : null;
+      if (err) return formError(f, err);
+      formError(f, "");
+      await submitWith(f, async () => {
+        try {
+          await rpc("add_comment", {
+            p_post_id: p.id, p_student_no: f.student_no.value.trim(), p_name: f.author_name.value.trim(),
+            p_pin: f.pin.value, p_body: f.body.value.trim(),
+          });
+          saveMe({ student_no: f.student_no.value.trim(), author_name: f.author_name.value.trim() });
+          f.body.value = "";
+          toast("댓글을 남겼어요 💬");
+          await fetchComments(p.id);
+        } catch (ex) { formError(f, ex.message); }
+      });
+    });
+    return f;
+  }
+
+  async function removeComment(c) {
+    const pin = prompt("댓글을 쓸 때 정한 비밀번호 4자리를 입력해 주세요.");
+    if (pin == null) return;
+    try {
+      const result = await rpc("delete_comment", { p_comment_id: c.id, p_pin: pin.trim() });
+      if (result !== "OK") throw new Error(window.Board.ERROR_TEXT[result] || result);
+      toast("댓글을 지웠어요.");
+      const postId = Object.keys(commentCache).find((k) => (commentCache[k] || []).some((x) => x.id === c.id));
+      if (postId) await fetchComments(Number(postId));
+    } catch (e) { toast(e.message, true); }
   }
 
   function matches(p, q) {
@@ -94,9 +216,18 @@
     const shown = q ? source.filter((p) => matches(p, q)) : source;
 
     const cards = shown.map((p) => renderPost(p));
-    // 실제 게시판 첫머리에는 작성 예시 말풍선을 하나 보여 줍니다.
-    if (!demo && !q) cards.unshift(renderPost(EXAMPLE_POST, { example: true }));
+    // 실제 게시판 첫머리에는 작성 예시 말풍선을 하나 보여 줍니다. (실제 글이 10개가 넘으면 숨김)
+    if (!demo && !q && posts.length < 10) cards.unshift(renderPost(EXAMPLE_POST, { example: true }));
     layout(cards);
+    clampCheck();
+    if (flashId != null) {
+      const el = boardEl.querySelector('.post[data-id="' + flashId + '"]');
+      flashId = null;
+      if (el) {
+        el.classList.add("flash");
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
 
     document.body.classList.toggle("demo-mode", demo);
     demoBanner.hidden = !demo;
@@ -128,6 +259,7 @@
     const n = Math.max(1, Math.floor((boardEl.clientWidth + 24) / 324));
     const cols = Array.from({ length: n }, () => h("div", { class: "col" }));
     boardEl.replaceChildren(...cols);
+    boardEl.removeAttribute("aria-busy");
     for (const card of cards) {
       let target = cols[0];
       for (const c of cols) if (c.offsetHeight < target.offsetHeight) target = c;
@@ -139,6 +271,7 @@
     if (boardEl.clientWidth === lastWidth) return;
     lastWidth = boardEl.clientWidth;
     layout(lastCards);
+    clampCheck();
   });
 
   let loaded = false;
@@ -151,6 +284,11 @@
     try {
       posts = await rpc("get_board");
       render();
+      // 열어 둔 댓글 창은 댓글 수가 바뀌었을 때만 다시 불러옵니다.
+      for (const id of openComments) {
+        const p = posts.find((x) => x.id === id);
+        if (p && (commentCache[id] || []).length !== p.comment_count) fetchComments(id);
+      }
       loaded = true;
     } catch (e) {
       if (!quiet) {
@@ -229,6 +367,14 @@
   function openPost() {
     if (demo) setDemo(false);
     formError(postForm, "");
+    const me = loadMe();
+    if (!postForm.student_no.value && me.student_no) {
+      if (me.role === "teacher") postForm.querySelector('input[name="role"][value="teacher"]').checked = true;
+      applyRole();
+      postForm.student_no.value = me.student_no;
+      postForm.author_name.value = me.author_name || "";
+      postForm.nickname.value = me.nickname || "";
+    }
     postDialog.showModal();
     updatePostCount();
     if (!postForm.student_no.value) postForm.student_no.focus();
@@ -249,7 +395,7 @@
           f.teacher_code.focus();
           return formError(f, "교사 인증 코드를 입력해 주세요.");
         }
-        await rpc("create_post", {
+        const created = await rpc("create_post", {
           p_teacher_code: teacher ? f.teacher_code.value.trim() : null,
           p_role: f.elements.role.value,
           p_student_no: f.student_no.value.trim(),
@@ -261,12 +407,14 @@
           p_book_title: f.book_title.value.trim(),
           p_book_author: f.book_author.value.trim(),
         });
+        saveMe({ role: f.elements.role.value, student_no: f.student_no.value.trim(),
+          author_name: f.author_name.value.trim(), nickname: f.nickname.value.trim() });
         postDialog.close();
         f.reset();
         applyRole();
         toast("게시했어요! 🎉");
+        flashId = created && created.id;
         await load();
-        window.scrollTo({ top: 0, behavior: "smooth" });
       } catch (ex) {
         formError(f, ex.message);
       }
@@ -414,7 +562,11 @@
 
   load();
   setInterval(() => {
-    if (document.visibilityState === "visible" && !demo && !postDialog.open && !addDialog.open && !editDialog.open) load(true);
+    if (document.visibilityState !== "visible" || demo || postDialog.open || addDialog.open || editDialog.open) return;
+    // 댓글을 쓰는 중이면 화면을 다시 그리지 않습니다.
+    const typing = [...boardEl.querySelectorAll(".comment-form textarea, .comment-form input[name=pin]")]
+      .some((el) => el.value || el === document.activeElement);
+    if (!typing) load(true);
   }, REFRESH_MS);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") load(true);
