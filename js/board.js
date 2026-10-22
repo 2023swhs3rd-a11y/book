@@ -293,13 +293,116 @@
     likes: (a, b) => (b.like_count || 0) - (a.like_count || 0),
   };
 
+  // 띄어쓰기·문장부호·대소문자가 달라도 같은 책으로 봅니다.
+  const norm = (s) => String(s || "").toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "");
+
+  // ---------- 책 제목 자동완성: 게시판에 이미 있는 책 + 카카오 책 검색 ----------
+  // 카카오 검색은 Supabase 함수(book-search)를 거칩니다. 함수가 없으면 게시판 책만 보여 줍니다.
+  let remoteSearch = isConfigured();
+  const remoteCache = {};
+
+  function localBooks(q) {
+    const seen = new Set();
+    const out = [];
+    for (const p of posts) {
+      for (const e of p.entries || []) {
+        const key = norm(e.book_title) + "|" + norm(e.book_author);
+        if (seen.has(key) || !norm(e.book_title).includes(q)) continue;
+        seen.add(key);
+        out.push({ title: e.book_title, author: e.book_author, category: e.category, source: "board" });
+      }
+    }
+    return out.slice(0, 4);
+  }
+
+  async function remoteBooks(q) {
+    if (!remoteSearch) return [];
+    if (remoteCache[q]) return remoteCache[q];
+    try {
+      const key = cfg.SUPABASE_ANON_KEY;
+      const headers = { apikey: key };
+      if (key.startsWith("eyJ")) headers.Authorization = "Bearer " + key;
+      const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/book-search?q=" + encodeURIComponent(q), { headers });
+      const body = await res.json();
+      if (!res.ok || !body.books) throw new Error(body.error || res.status);
+      return (remoteCache[q] = body.books.map((b) => ({
+        // '(양장)', '(개정판)' 같은 판 표시는 떼어 내야 같은 책끼리 잘 묶입니다.
+        title: String(b.title).replace(/\s*[(\[](양장|반양장|무선|리커버|큰글자|[^)\]]*판)[)\]]\s*$/, "").trim(),
+        author: (b.authors || []).join(", "), publisher: b.publisher,
+        year: b.year, thumbnail: b.thumbnail, source: "kakao",
+      })));
+    } catch (e) {
+      remoteSearch = false;   // 함수가 없거나 키가 없으면 이번 방문 동안은 게시판 책만
+      return [];
+    }
+  }
+
+  function setupBookSuggest(form) {
+    const input = form.book_title;
+    const list = h("ul", { class: "book-suggest", role: "listbox", hidden: true });
+    input.after(list);
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    let items = [], active = -1, timer, seq = 0;
+
+    function close() { list.hidden = true; active = -1; }
+    function choose(b) {
+      input.value = b.title;
+      form.book_author.value = b.author;
+      if (b.category && form.category && !form.category.value) form.category.value = b.category;
+      close();
+      form.book_author.dispatchEvent(new Event("input"));
+      (form.category && !form.category.value ? form.category : form.quote).focus();
+    }
+    function draw() {
+      list.replaceChildren(...items.map((b, i) => h("li", {
+          role: "option", class: "bs-item" + (i === active ? " active" : ""), "aria-selected": String(i === active),
+          onmousedown: (ev) => { ev.preventDefault(); choose(b); } },
+        b.thumbnail ? h("img", { src: b.thumbnail, alt: "", loading: "lazy" }) : h("span", { class: "bs-noimg" }, b.source === "board" ? "📌" : "📖"),
+        h("span", { class: "bs-text" },
+          h("b", null, b.title),
+          h("small", null, [b.author, b.publisher, b.year].filter(Boolean).join(" · "))),
+        b.source === "board" ? h("span", { class: "bs-tag" }, "게시판") : null)));
+      list.hidden = !items.length;
+    }
+    async function update() {
+      const raw = input.value.trim();
+      const q = norm(raw);
+      if (q.length < 2) return close();
+      const mine = ++seq;
+      const local = localBooks(q);
+      items = local; active = -1; draw();
+      const remote = await remoteBooks(raw);
+      if (mine !== seq) return;   // 그사이 더 입력했으면 버림
+      const seen = new Set(local.map((b) => norm(b.title) + "|" + norm(b.author)));
+      items = local.concat(remote.filter((b) => !seen.has(norm(b.title) + "|" + norm(b.author)))).slice(0, 8);
+      draw();
+    }
+    input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(update, 250); });
+    input.addEventListener("keydown", (e) => {
+      if (list.hidden) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        draw();
+      } else if (e.key === "Enter" && active >= 0) {
+        e.preventDefault();
+        choose(items[active]);
+      } else if (e.key === "Escape") {
+        e.preventDefault();   // 창은 닫지 않고 목록만 닫기
+        close();
+      }
+    });
+    input.addEventListener("blur", () => setTimeout(close, 100));
+  }
+
   // ---------- 많이 소개된 책 ----------
   const topBooksEl = $("#topBooks");
   function renderTopBooks(source) {
     const books = new Map();   // 띄어쓰기를 뺀 제목 → { title, people }
     for (const p of source) {
       for (const e of p.entries || []) {
-        const key = e.book_title.replace(/\s/g, "");
+        const key = norm(e.book_title);
         if (!books.has(key)) books.set(key, { title: e.book_title, people: new Set() });
         books.get(key).people.add(p.id);
       }
@@ -491,6 +594,7 @@
   const updatePostCount = setupCounter(postForm);
   const updateAddCount = setupCounter(addForm);
   const updateEditCount = setupCounter(editForm);
+  [postForm, addForm, editForm].forEach(setupBookSuggest);
 
   for (const dlg of [postDialog, addDialog, editDialog]) {
     dlg.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => dlg.close()));
