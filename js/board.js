@@ -208,8 +208,6 @@
       !readOnly && !open && unseen(p) ? h("span", { class: "new-dot" }, "새 " + unseen(p)) : null);
     wrap.append(h("div", { class: "react-row" },
       likeButton(p, readOnly), toggle,
-      h("button", { class: "report-btn img-btn", type: "button", title: "이미지로 저장", "aria-label": "이 말풍선을 이미지로 저장하기",
-        onclick: () => saveImage(p) }, "🖼"),
       h("button", { class: "report-btn", type: "button", title: "신고하기", "aria-label": "이 말풍선 신고하기",
         onclick: () => (readOnly ? toast("예시 말풍선이에요.") : report(p)) }, "🚩")));
     if (!open) return wrap;
@@ -552,156 +550,6 @@
     }
   });
 
-  // ---------- 말풍선 이미지로 저장 ----------
-  // 화면의 말풍선 색을 그대로 써서 1080×1350(인스타그램 세로) 그림을 그립니다.
-  const PALETTE = {
-    yellow: ["#fff3b0", "#e9c94a", "#7a5d00"], pink: ["#ffd9e2", "#f08aa5", "#8f2a47"],
-    sky: ["#d6ecff", "#74b2ec", "#1d5788"], mint: ["#d3f5e9", "#5fc9a3", "#146b4f"],
-    lavender: ["#e7ddff", "#a58cf0", "#4b329a"], peach: ["#ffe2cc", "#f3a06b", "#8a4313"],
-    lime: ["#e6f6c4", "#a3cf4f", "#4b6a0e"], gray: ["#ebe9e6", "#b0aaa2", "#4a4540"],
-    teacher: ["#fffaf0", "#c8955f", "#8a4b1f"],
-  };
-  const FONT = "'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
-
-  // 단어 단위로 줄을 바꾸고, 한 단어가 너무 길면 글자 단위로 자릅니다.
-  function wrapText(ctx, text, maxW) {
-    const lines = [];
-    for (const para of String(text).split("\n")) {
-      let line = "";
-      for (const word of para.split(/(?<=\s)/)) {
-        if (ctx.measureText(line + word).width <= maxW) { line += word; continue; }
-        if (line.trim()) { lines.push(line.trimEnd()); line = ""; }
-        for (const ch of word.trimStart()) {
-          if (line && ctx.measureText(line + ch).width > maxW) { lines.push(line); line = ""; }
-          line += ch;
-        }
-      }
-      lines.push(line.trimEnd());
-    }
-    return lines;
-  }
-
-  function roundRect(ctx, x, y, w, hgt, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + hgt, r);
-    ctx.arcTo(x + w, y + hgt, x, y + hgt, r);
-    ctx.arcTo(x, y + hgt, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
-
-  async function drawCard(p) {
-    const e = p.entries[p.entries.length - 1];
-    const teacher = p.role === "teacher";
-    const [bg, bd, tone] = PALETTE[teacher ? "teacher" : p.color] || PALETTE.yellow;
-    const W = 1080, H = 1350, X = 90, CW = W - 180;
-    const c = document.createElement("canvas");
-    c.width = W; c.height = H;
-    const ctx = c.getContext("2d");
-    try { await Promise.all(["400", "700", "800"].map((w) => document.fonts.load(w + " 40px 'Pretendard Variable'", "가A"))); } catch (err) {}
-    const font = (w, s) => (ctx.font = w + " " + s + "px " + FONT);
-
-    ctx.fillStyle = "#fff8ec";
-    ctx.fillRect(0, 0, W, H);
-    ctx.textBaseline = "alphabetic";
-    font(800, 34);
-    ctx.fillStyle = "#e8743b";
-    ctx.fillText(cfg.TITLE || "독서나눔 릴레이", X, 110);
-
-    // 먼저 글 크기를 재고, 글 길이에 맞춘 말풍선을 그림 가운데에 놓습니다.
-    const chip = [teacher ? "선생님의 책" : null, p.pinned ? "선생님 추천" : null, e.category].filter(Boolean).join(" · ");
-    font(800, 52);
-    const titleLines = wrapText(ctx, "『" + e.book_title + "』", CW).slice(0, 2);
-    const headH = (chip ? 70 : 0) + titleLines.length * 66 + 70;
-    const inner = 830;
-    // 내용: 짧은 글은 크게, 긴 글은 공간에 맞을 때까지 줄이고, 그래도 넘치면 말줄임
-    let size = 58, lines;
-    for (; size >= 28; size -= 2) {
-      font(400, size);
-      lines = wrapText(ctx, e.quote, CW);
-      if (headH + lines.length * size * 1.6 <= inner) break;
-    }
-    const lh = size * 1.6;
-    const max = Math.max(1, Math.floor((inner - headH) / lh));
-    if (lines.length > max) lines = lines.slice(0, max - 1).concat([lines[max - 1].replace(/.{0,2}$/, "") + "…"]);
-    const boxH = Math.max(560, headH + lines.length * lh + 140);
-    const top = 150 + Math.max(0, (1110 - boxH - 130) / 2), bottom = top + boxH;
-    // 말풍선
-    roundRect(ctx, X - 30, top, CW + 60, bottom - top, 44);
-    ctx.fillStyle = bg;
-    ctx.fill();
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = bd;
-    ctx.stroke();
-    ctx.beginPath();   // 꼬리
-    ctx.moveTo(X + 40, bottom - 3);
-    ctx.lineTo(X + 30, bottom + 50);
-    ctx.lineTo(X + 100, bottom - 3);
-    ctx.fillStyle = bg;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(X + 40, bottom);
-    ctx.lineTo(X + 30, bottom + 50);
-    ctx.lineTo(X + 100, bottom);
-    ctx.stroke();
-    let y = top + 70 + 38 + (boxH - 140 - headH - lines.length * lh) / 2;
-
-    if (chip) {
-      font(700, 28);
-      const w = ctx.measureText(chip).width + 40;
-      roundRect(ctx, X, y - 38, w, 52, 26);
-      ctx.fillStyle = "rgba(255,255,255,.75)";
-      ctx.fill();
-      ctx.fillStyle = tone;
-      ctx.fillText(chip, X + 20, y - 2);
-      y += 70;
-    }
-    font(800, 52);
-    ctx.fillStyle = tone;
-    for (const line of titleLines) { ctx.fillText(line, X, y); y += 66; }
-    font(400, 32);
-    ctx.fillText(e.book_author, X, y);
-    y += 40;
-    ctx.strokeStyle = bd;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(X, y);
-    ctx.lineTo(X + 120, y);
-    ctx.stroke();
-    y += 30;
-    font(400, size);
-    ctx.fillStyle = "#2b2620";
-    for (const line of lines) { y += lh; ctx.fillText(line, X, y - lh * 0.3); }
-
-    // 작성자
-    const who = (teacher ? "선생님 · " : "") + [p.student_no, p.author_name || p.display_name].filter(Boolean).join(" ")
-      + (p.nickname ? " (" + p.nickname + ")" : "");
-    font(700, 34);
-    ctx.fillStyle = "#2b2620";
-    ctx.fillText(who, X + 150, bottom + 66);
-    font(400, 26);
-    ctx.fillStyle = "#6b6157";
-    ctx.fillText(fmtDate(e.created_at), X + 150, bottom + 108);
-    font(700, 26);
-    ctx.textAlign = "right";
-    ctx.fillText("함께 읽어요", W - X, H - 50);
-    return c;
-  }
-
-  const imgDialog = $("#imgDialog");
-  async function saveImage(p) {
-    try {
-      const url = (await drawCard(p)).toDataURL("image/png");
-      const e = p.entries[p.entries.length - 1];
-      $("#imgPreview").src = url;
-      const a = $("#imgDownload");
-      a.href = url;
-      a.download = "독서나눔_" + e.book_title.replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 30) + ".png";
-      imgDialog.showModal();
-    } catch (err) { toast("이미지를 만들지 못했어요.", true); }
-  }
-
   // ---------- 교실 전시 모드: 지금 보이는 말풍선을 하나씩 크게, 10초마다 넘김 ----------
   const SHOW_MS = 10000;
   const showcase = $("#showcase");
@@ -843,7 +691,7 @@
   const updateEditCount = setupCounter(editForm);
   [postForm, addForm, editForm].forEach(setupBookSuggest);
 
-  for (const dlg of [postDialog, addDialog, editDialog, imgDialog]) {
+  for (const dlg of [postDialog, addDialog, editDialog]) {
     dlg.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => dlg.close()));
     dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
   }
