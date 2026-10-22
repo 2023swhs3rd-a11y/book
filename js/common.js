@@ -16,8 +16,11 @@
   // 책 계열 (schema.sql 의 _check_category 와 같아야 합니다)
   const CATEGORIES = ["소설", "시·에세이", "인문과학", "사회과학", "자연과학", "공학·기술", "예술·체육", "진로·자기계발", "기타"];
 
+  // supabase/schema.sql 의 schema_version() 과 같아야 합니다. DB 구조를 바꾸면 둘 다 올려 주세요.
+  const SCHEMA_VERSION = 7;
+
   // 화면 아래에 보이는 버전. 기능을 바꿀 때마다 올려 주세요.
-  const VERSION = "v1.12 (2026.10.22)";
+  const VERSION = "v1.13 (2026.10.22)";
 
   const ERROR_TEXT = {
     PIN_FORMAT: "비밀번호는 숫자 4자리로 입력해 주세요.",
@@ -41,6 +44,7 @@
     CATEGORY: "책 계열을 골라 주세요.",
     TOO_MANY_REPORTS: "신고는 한 시간에 20번까지 할 수 있어요.",
     SEASON_EXISTS: "이미 같은 이름으로 보관한 학기가 있어요. 다른 이름을 써 주세요.",
+    SCHEMA_OUTDATED: "게시판 DB 업데이트가 아직 반영되지 않았어요. 관리자는 supabase/schema.sql 을 SQL Editor 에서 다시 실행해 주세요.",
     LAST_ENTRY: "글이 하나뿐인 게시물이에요. 게시물 전체 삭제를 사용해 주세요.",
   };
 
@@ -82,7 +86,9 @@
     }
     const body = await res.json().catch(() => null);
     if (!res.ok) {
-      const code = body && body.message ? body.message : "서버 오류가 났어요 (" + res.status + ")";
+      let code = body && body.message ? body.message : "서버 오류가 났어요 (" + res.status + ")";
+      // 새 함수를 찾지 못하는 오류 = schema.sql 을 다시 실행하지 않은 경우
+      if (/schema cache|does not exist/i.test(code)) code = "SCHEMA_OUTDATED";
       throw new ApiError(code);
     }
     if (body && typeof body === "object" && !Array.isArray(body) && body.error) {
@@ -173,5 +179,5 @@
     document.querySelectorAll("[data-version]").forEach((el) => (el.textContent = VERSION));
   });
 
-  window.Board = { cfg, VERSION, COLORS, CATEGORIES, ERROR_TEXT, isConfigured, rpc, fmtDate, timeAgo, h, toast, ask };
+  window.Board = { cfg, VERSION, SCHEMA_VERSION, COLORS, CATEGORIES, ERROR_TEXT, isConfigured, rpc, fmtDate, timeAgo, h, toast, ask };
 })();
