@@ -112,43 +112,41 @@ set search_path = public as $$
   ) b
 $$;
 
-drop function if exists public.create_post(text, text, text, text, text, text, text, text);
-create or replace function public.create_post(
-  p_role text, p_student_no text, p_name text, p_nickname text, p_pin text, p_color text,
-  p_quote text, p_book_title text, p_book_author text)
-returns bigint language plpgsql security definer
-set search_path = public, extensions as $$
-declare new_id bigint;
-begin
-  if coalesce(p_pin, '') !~ '^[0-9]{4}$' then raise exception 'PIN_FORMAT'; end if;
-  if _clean(p_student_no, 20) is null or _clean(p_name, 20) is null
-     or _clean(p_quote, 500) is null or _clean(p_book_title, 100) is null
-     or _clean(p_book_author, 50) is null then
-    raise exception 'MISSING_FIELD';
-  end if;
+-- [3차 업데이트] 금지어, 교사 인증 코드
+create table if not exists public.banned_words (
+  word text primary key check (char_length(word) between 1 and 30)
+);
+alter table public.banned_words enable row level security;
+revoke all on public.banned_words from anon, authenticated;
+-- 기본 금지어 (관리자 화면에서 추가·삭제할 수 있습니다)
+insert into public.banned_words (word)
+select unnest(array['시발','씨발','씨빨','씨바','ㅅㅂ','ㅆㅂ','병신','븅신','ㅂㅅ','좆','존나','ㅈㄴ',
+  '개새끼','개색','미친놈','미친년','지랄','ㅈㄹ','엠창','느금','니애미','섹스','fuck','shit'])
+where not exists (select 1 from public.banned_words)
+on conflict do nothing;
 
-  insert into public.posts (role, student_no, author_name, nickname, pin_hash, color)
-  values (case when p_role = 'teacher' then 'teacher' else 'student' end, _clean(p_student_no, 20), _clean(p_name, 20), _clean(p_nickname, 20),
-          crypt(p_pin, gen_salt('bf')), _check_color(p_color))
-  returning id into new_id;
+alter table public.admin_config add column if not exists teacher_code_hash text;
+alter table public.admin_config add column if not exists teacher_fail_count int not null default 0;
+alter table public.admin_config add column if not exists teacher_locked_until timestamptz;
 
-  insert into public.entries (post_id, quote, book_title, book_author)
-  values (new_id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50));
-  return new_id;
-end $$;
+-- 기호·숫자를 끼워 넣어도 걸러지도록 정리한 뒤 금지어를 찾습니다.
+-- (띄어쓰기는 지우지 않습니다. 지우면 '질병 신호' 같은 정상 문장이 걸립니다.)
+create or replace function public._has_banned(variadic texts text[])
+returns boolean language sql stable security definer
+set search_path = public as $$
+  select exists (
+    select 1 from public.banned_words w
+     where position(lower(regexp_replace(w.word, '[[:punct:]0-9]', '', 'g'))
+                    in lower(regexp_replace(array_to_string(texts, ' '), '[[:punct:]0-9]', '', 'g'))) > 0
+  )
+$$;
 
--- 내용 이어쓰기 (비밀번호 5회 틀리면 10분 잠금)
--- 반환값: 'OK' | 'BAD_PIN' | 'LOCKED'
-create or replace function public.add_entry(
-  p_post_id bigint, p_pin text, p_quote text, p_book_title text, p_book_author text)
+-- 게시물 비밀번호 확인 (5회 틀리면 10분 잠금). 맞으면 null, 아니면 'LOCKED' | 'BAD_PIN'
+create or replace function public._pin_check(p public.posts, p_pin text)
 returns text language plpgsql security definer
 set search_path = public, extensions as $$
-declare p public.posts;
 begin
-  select * into p from public.posts where id = p_post_id and not hidden for update;
-  if not found then raise exception 'NOT_FOUND'; end if;
   if p.locked_until is not null and p.locked_until > now() then return 'LOCKED'; end if;
-
   if p.pin_hash <> crypt(coalesce(p_pin, ''), p.pin_hash) then
     update public.posts
        set fail_count = case when p.fail_count + 1 >= 5 then 0 else p.fail_count + 1 end,
@@ -156,6 +154,89 @@ begin
      where id = p.id;
     return 'BAD_PIN';
   end if;
+  update public.posts set fail_count = 0, locked_until = null where id = p.id;
+  return null;
+end $$;
+
+-- 교사 인증 코드 확인 (10회 틀리면 10분 동안 교사 글쓰기 잠금)
+create or replace function public._teacher_check(p_code text)
+returns text language plpgsql security definer
+set search_path = public, extensions as $$
+declare cfg public.admin_config;
+begin
+  select * into cfg from public.admin_config where id = 1 for update;
+  if not found or cfg.teacher_code_hash is null then return 'TEACHER_CODE_NOT_SET'; end if;
+  if cfg.teacher_locked_until is not null and cfg.teacher_locked_until > now() then
+    return 'TEACHER_LOCKED';
+  end if;
+  if cfg.teacher_code_hash = crypt(coalesce(p_code, ''), cfg.teacher_code_hash) then
+    update public.admin_config set teacher_fail_count = 0, teacher_locked_until = null where id = 1;
+    return null;
+  end if;
+  update public.admin_config
+     set teacher_fail_count = case when cfg.teacher_fail_count + 1 >= 10 then 0 else cfg.teacher_fail_count + 1 end,
+         teacher_locked_until = case when cfg.teacher_fail_count + 1 >= 10 then now() + interval '10 minutes' end
+   where id = 1;
+  return 'TEACHER_CODE';
+end $$;
+
+-- 새 글: 성공하면 {"ok": true, "id": 번호}, 실패하면 {"error": 코드}
+drop function if exists public.create_post(text, text, text, text, text, text, text, text);
+drop function if exists public.create_post(text, text, text, text, text, text, text, text, text);
+create or replace function public.create_post(
+  p_role text, p_student_no text, p_name text, p_nickname text, p_pin text, p_color text,
+  p_quote text, p_book_title text, p_book_author text, p_teacher_code text default null)
+returns json language plpgsql security definer
+set search_path = public, extensions as $$
+declare
+  new_id bigint;
+  is_teacher boolean := (p_role = 'teacher');
+  err text;
+begin
+  if coalesce(p_pin, '') !~ '^[0-9]{4}$' then return json_build_object('error', 'PIN_FORMAT'); end if;
+  if _clean(p_student_no, 20) is null or _clean(p_name, 20) is null
+     or _clean(p_quote, 500) is null or _clean(p_book_title, 100) is null
+     or _clean(p_book_author, 50) is null then
+    return json_build_object('error', 'MISSING_FIELD');
+  end if;
+  if is_teacher then
+    err := _teacher_check(p_teacher_code);
+    if err is not null then return json_build_object('error', err); end if;
+  end if;
+  -- 도배 방지: 같은 학번(부서)·이름으로는 1분에 한 번만 새 글
+  if exists (select 1 from public.posts
+              where lower(student_no) = lower(_clean(p_student_no, 20))
+                and author_name = _clean(p_name, 20)
+                and created_at > now() - interval '1 minute') then
+    return json_build_object('error', 'TOO_FAST');
+  end if;
+  if _has_banned(p_name, p_nickname, p_quote, p_book_title, p_book_author) then
+    return json_build_object('error', 'BANNED_WORD');
+  end if;
+
+  insert into public.posts (role, student_no, author_name, nickname, pin_hash, color)
+  values (case when is_teacher then 'teacher' else 'student' end, _clean(p_student_no, 20),
+          _clean(p_name, 20), _clean(p_nickname, 20), crypt(p_pin, gen_salt('bf')), _check_color(p_color))
+  returning id into new_id;
+
+  insert into public.entries (post_id, quote, book_title, book_author)
+  values (new_id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50));
+  return json_build_object('ok', true, 'id', new_id);
+end $$;
+
+-- 내용 이어쓰기. 반환값: 'OK' | 'BAD_PIN' | 'LOCKED' | 'TOO_FAST' | 'BANNED_WORD'
+create or replace function public.add_entry(
+  p_post_id bigint, p_pin text, p_quote text, p_book_title text, p_book_author text)
+returns text language plpgsql security definer
+set search_path = public, extensions as $$
+declare
+  p public.posts;
+  err text;
+begin
+  select * into p from public.posts where id = p_post_id and not hidden for update;
+  if not found then raise exception 'NOT_FOUND'; end if;
+  err := _pin_check(p, p_pin);
+  if err is not null then return err; end if;
 
   if _clean(p_quote, 500) is null or _clean(p_book_title, 100) is null
      or _clean(p_book_author, 50) is null then
@@ -164,10 +245,67 @@ begin
   if (select count(*) from public.entries where post_id = p.id) >= 30 then
     raise exception 'TOO_MANY_ENTRIES';
   end if;
+  if exists (select 1 from public.entries where post_id = p.id and created_at > now() - interval '1 minute') then
+    return 'TOO_FAST';
+  end if;
+  if _has_banned(p_quote, p_book_title, p_book_author) then return 'BANNED_WORD'; end if;
 
   insert into public.entries (post_id, quote, book_title, book_author)
   values (p.id, _clean(p_quote, 500), _clean(p_book_title, 100), _clean(p_book_author, 50));
-  update public.posts set fail_count = 0, locked_until = null, updated_at = now() where id = p.id;
+  update public.posts set updated_at = now() where id = p.id;
+  return 'OK';
+end $$;
+
+-- 본인 글 고치기 (비밀번호 필요). 반환값은 add_entry 와 같습니다.
+create or replace function public.edit_entry(
+  p_post_id bigint, p_entry_id bigint, p_pin text, p_quote text, p_book_title text, p_book_author text)
+returns text language plpgsql security definer
+set search_path = public, extensions as $$
+declare
+  p public.posts;
+  err text;
+begin
+  select * into p from public.posts where id = p_post_id and not hidden for update;
+  if not found then raise exception 'NOT_FOUND'; end if;
+  if not exists (select 1 from public.entries where id = p_entry_id and post_id = p.id) then
+    raise exception 'NOT_FOUND';
+  end if;
+  err := _pin_check(p, p_pin);
+  if err is not null then return err; end if;
+  if _clean(p_quote, 500) is null or _clean(p_book_title, 100) is null
+     or _clean(p_book_author, 50) is null then
+    raise exception 'MISSING_FIELD';
+  end if;
+  if _has_banned(p_quote, p_book_title, p_book_author) then return 'BANNED_WORD'; end if;
+
+  update public.entries
+     set quote = _clean(p_quote, 500), book_title = _clean(p_book_title, 100),
+         book_author = _clean(p_book_author, 50)
+   where id = p_entry_id;
+  return 'OK';
+end $$;
+
+-- 본인 글 지우기 (비밀번호 필요). p_entry_id 가 null 이면 게시물 전체를 지웁니다.
+-- 첫 글만 지우면 이어 쓴 글이 남지 않도록, 첫 글을 고르면 게시물 전체를 지웁니다.
+create or replace function public.delete_own(p_post_id bigint, p_entry_id bigint, p_pin text)
+returns text language plpgsql security definer
+set search_path = public, extensions as $$
+declare
+  p public.posts;
+  err text;
+  first_id bigint;
+begin
+  select * into p from public.posts where id = p_post_id and not hidden for update;
+  if not found then raise exception 'NOT_FOUND'; end if;
+  err := _pin_check(p, p_pin);
+  if err is not null then return err; end if;
+
+  select id into first_id from public.entries where post_id = p.id order by created_at, id limit 1;
+  if p_entry_id is null or p_entry_id = first_id then
+    delete from public.posts where id = p.id;
+  else
+    delete from public.entries where id = p_entry_id and post_id = p.id;
+  end if;
   return 'OK';
 end $$;
 
@@ -262,14 +400,60 @@ begin
   return json_build_object('ok', true);
 end $$;
 
+-- 교사 인증 코드 설정 (관리자 화면에서 사용)
+create or replace function public.admin_set_teacher_code(p_pw text, p_code text)
+returns json language plpgsql security definer
+set search_path = public, extensions as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  if char_length(coalesce(p_code, '')) < 4 then
+    return json_build_object('error', 'TEACHER_CODE_TOO_SHORT');
+  end if;
+  update public.admin_config
+     set teacher_code_hash = crypt(p_code, gen_salt('bf')), teacher_fail_count = 0, teacher_locked_until = null
+   where id = 1;
+  return json_build_object('ok', true);
+end $$;
+
+-- 금지어 목록 보기 / 통째로 바꾸기
+create or replace function public.admin_get_words(p_pw text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  return json_build_object('ok', true,
+    'words', (select coalesce(json_agg(word order by word), '[]'::json) from public.banned_words),
+    'teacher_code_set', (select teacher_code_hash is not null from public.admin_config where id = 1));
+end $$;
+
+create or replace function public.admin_set_words(p_pw text, p_words text[])
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  delete from public.banned_words;
+  insert into public.banned_words (word)
+  select distinct left(btrim(w), 30) from unnest(coalesce(p_words, '{}')) w where btrim(w) <> ''
+  on conflict do nothing;
+  return json_build_object('ok', true);
+end $$;
+
 -- ---------------------------------------------------------------------
 -- 권한: 학생(anon)은 아래 공개 함수만 호출할 수 있습니다.
 -- ---------------------------------------------------------------------
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function
   public.get_board(),
-  public.create_post(text, text, text, text, text, text, text, text, text),
+  public.create_post(text, text, text, text, text, text, text, text, text, text),
   public.add_entry(bigint, text, text, text, text),
+  public.edit_entry(bigint, bigint, text, text, text, text),
+  public.delete_own(bigint, bigint, text),
+  public.admin_set_teacher_code(text, text),
+  public.admin_get_words(text),
+  public.admin_set_words(text, text[]),
   public.admin_list(text),
   public.admin_delete_post(text, bigint),
   public.admin_delete_entry(text, bigint),

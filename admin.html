@@ -6,8 +6,8 @@
   <meta name="robots" content="noindex">
   <title>관리자 · 봉일천고 독서나눔 릴레이</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022">
-  <link rel="stylesheet" href="css/admin.css?v=20261022">
+  <link rel="stylesheet" href="css/style.css?v=20261022b">
+  <link rel="stylesheet" href="css/admin.css?v=20261022b">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -40,6 +40,26 @@
     <!-- 관리 화면 -->
     <section id="adminMain" hidden>
       <div class="stats" id="stats"></div>
+
+      <details class="settings" id="settings">
+        <summary>⚙️ 설정 · 교사 인증 코드, 금지어</summary>
+        <div class="settings-body">
+          <form id="teacherCodeForm" class="setting">
+            <h3>교사 인증 코드 <span id="teacherCodeState" class="pill"></span></h3>
+            <p class="hint">교사로 글을 쓸 때 입력하는 코드예요. 선생님들께만 알려 주세요. 보안을 위해 저장된 코드는 다시 보여 주지 않아요.</p>
+            <div class="inline">
+              <input name="code" type="text" minlength="4" maxlength="40" placeholder="새 교사 인증 코드" autocomplete="off">
+              <button class="btn small primary" type="submit">저장</button>
+            </div>
+          </form>
+          <form id="wordsForm" class="setting">
+            <h3>금지어</h3>
+            <p class="hint">이 단어가 들어간 글은 게시되지 않아요. 쉼표나 줄바꿈으로 구분해 주세요. 기호·숫자를 끼워 넣어도 걸러져요.</p>
+            <textarea name="words" rows="4"></textarea>
+            <div class="inline end"><button class="btn small primary" type="submit">금지어 저장</button></div>
+          </form>
+        </div>
+      </details>
 
       <form class="filters" id="filters" onsubmit="return false">
         <label>검색어
@@ -103,8 +123,8 @@
     </section>
   </main>
 
-  <script src="js/config.js?v=20261022"></script>
-  <script src="js/common.js?v=20261022"></script>
-  <script src="js/admin.js?v=20261022"></script>
+  <script src="js/config.js?v=20261022b"></script>
+  <script src="js/common.js?v=20261022b"></script>
+  <script src="js/admin.js?v=20261022b"></script>
 </body>
 </html>

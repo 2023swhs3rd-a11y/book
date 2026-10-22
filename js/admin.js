@@ -276,6 +276,40 @@
     } catch (e) { toast(e.message, true); }
   });
 
+  // ---------- 설정: 교사 인증 코드 · 금지어 ----------
+  const settings = $("#settings");
+  async function loadSettings() {
+    try {
+      const res = await rpc("admin_get_words", { p_pw: pw });
+      $("#wordsForm").words.value = res.words.join(", ");
+      const state = $("#teacherCodeState");
+      state.textContent = res.teacher_code_set ? "설정됨" : "미설정";
+      state.className = "pill " + (res.teacher_code_set ? "on" : "off");
+    } catch (e) { toast(e.message, true); }
+  }
+  settings.addEventListener("toggle", () => { if (settings.open) loadSettings(); });
+
+  $("#teacherCodeForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const input = e.target.code;
+    try {
+      await rpc("admin_set_teacher_code", { p_pw: pw, p_code: input.value.trim() });
+      input.value = "";
+      toast("교사 인증 코드를 저장했어요.");
+      loadSettings();
+    } catch (ex) { toast(ex.message, true); }
+  });
+
+  $("#wordsForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const words = e.target.words.value.split(/[,\n]/).map((w) => w.trim()).filter(Boolean);
+    try {
+      await rpc("admin_set_words", { p_pw: pw, p_words: words });
+      toast("금지어 " + words.length + "개를 저장했어요.");
+      loadSettings();
+    } catch (ex) { toast(ex.message, true); }
+  });
+
   // ---------- 시작 ----------
   const saved = storage((s) => s.getItem(PW_KEY));
   if (saved && isConfigured()) login(saved, true);

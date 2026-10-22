@@ -11,6 +11,8 @@
   const addDialog = $("#addDialog");
   const postForm = $("#postForm");
   const addForm = $("#addForm");
+  const editDialog = $("#editDialog");
+  const editForm = $("#editForm");
 
   let posts = [];
   let addTargetId = null;
@@ -71,9 +73,13 @@
       h("footer", { class: "who" },
         h("span", { class: "avatar", "aria-hidden": "true" }, initial),
         identity(p),
-        h("button", { class: "link-btn", type: "button",
-          onclick: () => (demo || example ? toast("예시 말풍선이에요. [글쓰기]로 직접 남겨 보세요!") : openAdd(p.id)) },
-          "＋ 이어 쓰기")));
+        h("div", { class: "who-actions" },
+          h("button", { class: "link-btn", type: "button",
+            onclick: () => (demo || example ? toast("예시 말풍선이에요. [글쓰기]로 직접 남겨 보세요!") : openAdd(p.id)) },
+            "＋ 이어 쓰기"),
+          h("button", { class: "mini-btn", type: "button", title: "내 글 고치기·지우기",
+            onclick: () => (demo || example ? toast("예시 말풍선이에요.") : openEdit(p.id)) },
+            "✎ 수정"))));
   }
 
   function matches(p, q) {
@@ -165,8 +171,9 @@
   }
   const updatePostCount = setupCounter(postForm);
   const updateAddCount = setupCounter(addForm);
+  const updateEditCount = setupCounter(editForm);
 
-  for (const dlg of [postDialog, addDialog]) {
+  for (const dlg of [postDialog, addDialog, editDialog]) {
     dlg.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => dlg.close()));
     dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
   }
@@ -181,7 +188,7 @@
 
   function validate(form) {
     for (const el of form.querySelectorAll("[required]")) {
-      if (!el.value.trim()) {
+      if (!el.value.trim() && el.offsetParent !== null) {
         el.focus();
         const label = el.closest("label").querySelector("[data-label]") || el.closest("label").firstChild;
         return (label.textContent.trim() || "필수 항목") + " 칸을 채워 주세요.";
@@ -237,7 +244,13 @@
     const f = postForm;
     submitWith(f, async () => {
       try {
+        const teacher = f.elements.role.value === "teacher";
+        if (teacher && !f.teacher_code.value.trim()) {
+          f.teacher_code.focus();
+          return formError(f, "교사 인증 코드를 입력해 주세요.");
+        }
         await rpc("create_post", {
+          p_teacher_code: teacher ? f.teacher_code.value.trim() : null,
           p_role: f.elements.role.value,
           p_student_no: f.student_no.value.trim(),
           p_name: f.author_name.value.trim(),
@@ -305,6 +318,93 @@
     });
   });
 
+  // ---------- 내 글 고치기 · 지우기 ----------
+  let editPost = null;
+  const entryPick = $("#entryPick");
+
+  function fillEntry() {
+    const e = editPost.entries.find((x) => String(x.id) === editForm.entry.value) || editPost.entries[0];
+    editForm.book_title.value = e.book_title;
+    editForm.book_author.value = e.book_author;
+    editForm.quote.value = e.quote;
+    updateEditCount();
+  }
+  editForm.entry.addEventListener("change", fillEntry);
+
+  function openEdit(id) {
+    const p = posts.find((x) => x.id === id);
+    if (!p) return;
+    editPost = p;
+    editForm.reset();
+    formError(editForm, "");
+    $("#editTarget").textContent = (p.author_name || p.display_name) + " 님의 말풍선을 고치거나 지웁니다.";
+    editForm.entry.replaceChildren(...p.entries.map((e, i) =>
+      h("option", { value: e.id }, (i === 0 ? "첫 글" : "이어쓰기 " + i) + " · 『" + e.book_title + "』")));
+    entryPick.hidden = p.entries.length < 2;
+    fillEntry();
+    editDialog.className = "sheet c-" + p.color + (p.role === "teacher" ? " teacher" : "");
+    editDialog.showModal();
+    editForm.pin.focus();
+  }
+
+  async function afterEdit(msg) {
+    editDialog.close();
+    toast(msg);
+    await load();
+  }
+
+  editForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const err = validate(editForm);
+    if (err) return formError(editForm, err);
+    formError(editForm, "");
+    const f = editForm;
+    submitWith(f, async () => {
+      try {
+        const result = await rpc("edit_entry", {
+          p_post_id: editPost.id,
+          p_entry_id: Number(f.entry.value),
+          p_pin: f.pin.value,
+          p_quote: f.quote.value.trim(),
+          p_book_title: f.book_title.value.trim(),
+          p_book_author: f.book_author.value.trim(),
+        });
+        if (result !== "OK") throw new Error(window.Board.ERROR_TEXT[result] || result);
+        await afterEdit("고쳤어요! ✏️");
+      } catch (ex) {
+        formError(f, ex.message);
+      }
+    });
+  });
+
+  $("#deleteBtn").addEventListener("click", () => {
+    const f = editForm;
+    if (!/^\d{4}$/.test(f.pin.value)) {
+      f.pin.focus();
+      return formError(f, "비밀번호 4자리를 먼저 입력해 주세요.");
+    }
+    const isFirst = String(editPost.entries[0].id) === f.entry.value;
+    const msg = isFirst
+      ? (editPost.entries.length > 1
+          ? "첫 글을 지우면 이어 쓴 글까지 말풍선 전체가 지워져요. 지울까요?"
+          : "이 말풍선을 지울까요? 되돌릴 수 없어요.")
+      : "이 이어쓰기 글을 지울까요? 되돌릴 수 없어요.";
+    if (!confirm(msg)) return;
+    submitWith(f, async () => {
+      try {
+        const result = await rpc("delete_own", {
+          p_post_id: editPost.id,
+          p_entry_id: isFirst ? null : Number(f.entry.value),
+          p_pin: f.pin.value,
+        });
+        if (result !== "OK") throw new Error(window.Board.ERROR_TEXT[result] || result);
+        await afterEdit("지웠어요.");
+      } catch (ex) {
+        formError(f, ex.message);
+      }
+    });
+  });
+
   // ---------- 시작 ----------
   let searchTimer;
   searchEl.addEventListener("input", () => {
@@ -314,7 +414,7 @@
 
   load();
   setInterval(() => {
-    if (document.visibilityState === "visible" && !demo && !postDialog.open && !addDialog.open) load(true);
+    if (document.visibilityState === "visible" && !demo && !postDialog.open && !addDialog.open && !editDialog.open) load(true);
   }, REFRESH_MS);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") load(true);

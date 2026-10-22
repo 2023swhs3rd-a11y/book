@@ -24,6 +24,12 @@
     ADMIN_LOCKED: "비밀번호를 5번 틀려 10분 동안 잠겼어요.",
     ADMIN_NOT_SET: "관리자 비밀번호가 설정되지 않았어요. schema.sql 을 다시 실행해 주세요.",
     ADMIN_PW_TOO_SHORT: "새 비밀번호는 6자 이상이어야 해요.",
+    TOO_FAST: "방금 글을 올렸어요. 1분 뒤에 다시 시도해 주세요.",
+    BANNED_WORD: "바르지 않은 표현이 들어 있어요. 고운 말로 바꿔 주세요.",
+    TEACHER_CODE: "교사 인증 코드가 맞지 않아요.",
+    TEACHER_CODE_NOT_SET: "아직 교사 인증 코드가 설정되지 않았어요. 관리자에게 문의해 주세요.",
+    TEACHER_LOCKED: "교사 인증 코드를 여러 번 틀려서 10분 동안 교사 글쓰기가 잠겼어요.",
+    TEACHER_CODE_TOO_SHORT: "교사 인증 코드는 4자 이상이어야 해요.",
     LAST_ENTRY: "글이 하나뿐인 게시물이에요. 게시물 전체 삭제를 사용해 주세요.",
   };
 
