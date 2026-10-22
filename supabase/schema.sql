@@ -92,6 +92,8 @@ create table if not exists public.admin_config (
   fail_count    int not null default 0,
   locked_until  timestamptz
 );
+-- [7차 업데이트] 마지막 엑셀 백업 시각 (관리자 화면의 백업 알림용)
+alter table public.admin_config add column if not exists last_backup_at timestamptz;
 
 -- 모든 테이블은 직접 접근을 막고, 아래 함수(RPC)를 통해서만 읽고 씁니다.
 alter table public.posts        enable row level security;
@@ -520,7 +522,9 @@ set search_path = public as $$
 declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
-  return json_build_object('ok', true, 'posts', (
+  return json_build_object('ok', true,
+    'last_backup_at', (select last_backup_at from public.admin_config where id = 1),
+    'posts', (
     select coalesce(json_agg(b order by b.updated_at desc), '[]'::json)
     from (
       select p.id, p.role, p.student_no, p.author_name, p.nickname, p.color, p.hidden,
@@ -582,6 +586,22 @@ begin
   update public.posts set hidden = p_hidden where id = p_post_id;
   return json_build_object('ok', true);
 end $$;
+
+-- 엑셀 전체 백업을 내려받은 시각을 기록합니다.
+create or replace function public.admin_mark_backup(p_pw text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  update public.admin_config set last_backup_at = now() where id = 1;
+  return json_build_object('ok', true);
+end $$;
+
+-- DB 구조의 버전. schema.sql 을 바꿀 때마다 1씩 올리고 js/common.js 의 SCHEMA_VERSION 도 같이 올립니다.
+-- 화면은 이 값이 더 작으면 "schema.sql 을 다시 실행해 주세요" 라고 알려 줍니다.
+create or replace function public.schema_version()
+returns int language sql immutable as $$ select 7 $$;
 
 -- 선생님 추천: 말풍선을 맨 위에 고정하고 '선생님 추천' 표시를 답니다.
 create or replace function public.admin_set_pinned(p_pw text, p_post_id bigint, p_pinned boolean)
@@ -699,6 +719,7 @@ end $$;
 -- ---------------------------------------------------------------------
 revoke execute on all functions in schema public from public, anon, authenticated;
 grant execute on function
+  public.schema_version(),
   public.get_board(),
   public.create_post(text, text, text, text, text, text, text, text, text, text, text),
   public.add_entry(bigint, text, text, text, text, text),
@@ -722,7 +743,8 @@ grant execute on function
   public.admin_archive_season(text, text),
   public.admin_unarchive_season(text, text),
   public.admin_reset_pin(text, bigint, text),
-  public.admin_change_password(text, text)
+  public.admin_change_password(text, text),
+  public.admin_mark_backup(text)
 to anon, authenticated;
 
 -- ---------------------------------------------------------------------

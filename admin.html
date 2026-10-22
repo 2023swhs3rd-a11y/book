@@ -9,8 +9,8 @@
   <link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022k">
-  <link rel="stylesheet" href="css/admin.css?v=20261022k">
+  <link rel="stylesheet" href="css/style.css?v=20261022l">
+  <link rel="stylesheet" href="css/admin.css?v=20261022l">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -43,6 +43,7 @@
 
     <!-- 관리 화면 -->
     <section id="adminMain" hidden>
+      <div class="alerts" id="alerts"></div>
       <div class="stats" id="stats"></div>
 
       <details class="settings" id="settings">
@@ -141,6 +142,8 @@
       <div class="export-bar">
         <span id="resultCount"></span>
         <div>
+          <small class="backup-info" id="backupInfo"></small>
+          <button class="btn small" id="backupBtn" type="button" title="보관한 학기까지 모든 글을 엑셀로 내려받아요">💾 전체 백업</button>
           <button class="btn small" id="cardsBtn" type="button" title="조건에 맞는 학생마다 한 장씩 인쇄해요">🖨 학생별 기록 카드</button>
           <button class="btn small" id="csvBtn" type="button">⬇ CSV</button>
           <button class="btn small primary" id="xlsxBtn" type="button">⬇ 엑셀(XLSX)</button>
@@ -171,8 +174,8 @@
   <!-- 인쇄용 학생별 독서 기록 카드 -->
   <section id="cards" class="cards" aria-hidden="true"></section>
 
-  <script src="js/config.js?v=20261022k"></script>
-  <script src="js/common.js?v=20261022k"></script>
-  <script src="js/admin.js?v=20261022k"></script>
+  <script src="js/config.js?v=20261022l"></script>
+  <script src="js/common.js?v=20261022l"></script>
+  <script src="js/admin.js?v=20261022l"></script>
 </body>
 </html>

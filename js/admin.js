@@ -1,6 +1,7 @@
 // 관리자 화면: 조회 · 필터 · 숨김 · 삭제 · 비밀번호 초기화 · CSV/XLSX 내보내기
 (function () {
-  const { cfg, COLORS, CATEGORIES, isConfigured, rpc, fmtDate, h, toast, ask } = window.Board;
+  const { cfg, COLORS, CATEGORIES, SCHEMA_VERSION, ERROR_TEXT, isConfigured, rpc, fmtDate, h, toast, ask } = window.Board;
+  const BACKUP_DAYS = 14;   // 이보다 오래 백업하지 않으면 알림
   const XLSX_SRC = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
   const QR_SRC = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js";
   const PW_KEY = "board-admin-pw";
@@ -16,6 +17,8 @@
   let pw = null;
   let allPosts = [];   // 보관한 학기까지 모든 글
   let posts = [];      // 위 '학기' 필터로 고른 글 (통계 · 표 · 내보내기의 기준)
+  let lastBackup = null;
+  let schemaOk = true;
   const expanded = new Set();
 
   function storage(fn) { try { return fn(window.sessionStorage); } catch (e) { return null; } }
@@ -27,10 +30,12 @@
       pw = password;
       storage((s) => s.setItem(PW_KEY, password));
       allPosts = res.posts || [];
+      lastBackup = res.last_backup_at;
       loginForm.hidden = true;
       $("#adminMain").hidden = false;
       $("#adminTools").hidden = false;
       render();
+      checkSchema();
     } catch (e) {
       storage((s) => s.removeItem(PW_KEY));
       if (!silent) loginForm.querySelector(".form-error").textContent = e.message;
@@ -71,6 +76,7 @@
     try {
       const res = await rpc("admin_list", { p_pw: pw });
       allPosts = res.posts || [];
+      lastBackup = res.last_backup_at;
       render();
     } catch (e) { toast(e.message, true); }
   }
@@ -81,6 +87,63 @@
       await rpc(fn, Object.assign({ p_pw: pw }, params));
       toast(okMsg);
       await reload();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  // ---------- 알림: DB 버전 · 신고 · 백업 ----------
+  async function checkSchema() {
+    try { schemaOk = (await rpc("schema_version")) >= SCHEMA_VERSION; } catch (e) { schemaOk = false; }
+    renderAlerts();
+  }
+
+  const daysSince = (iso) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+
+  function renderAlerts() {
+    const out = [];
+    if (!schemaOk) {
+      out.push(h("div", { class: "alert danger" },
+        h("span", null, "⚠️ ", h("b", null, "DB 업데이트가 필요해요."), " 저장소의 supabase/schema.sql 전체를 Supabase SQL Editor 에 붙여 넣고 Run 해 주세요. 그 전에는 새 기능에서 오류가 나요."),
+        h("a", { class: "btn small", href: "https://github.com/2023swhs3rd-a11y/book/blob/main/supabase/schema.sql", target: "_blank", rel: "noopener" }, "schema.sql 열기")));
+    }
+    const reported = allPosts.filter((p) => reportCount(p));
+    const n = reported.reduce((sum, p) => sum + reportCount(p), 0);
+    if (n) {
+      out.push(h("div", { class: "alert report" },
+        h("span", null, "🚩 확인하지 않은 신고 ", h("b", null, n + "건"), "이 있어요 (말풍선 " + reported.length + "개)."),
+        h("button", { class: "btn small", type: "button", onclick: () => {
+          const f = filters.elements;
+          filters.reset();
+          f.season.value = "*";
+          f.state.value = "reported";
+          f.sort.value = "reports";
+          render();
+          $(".export-bar").scrollIntoView({ behavior: "smooth", block: "start" });
+        } }, "신고 글 보기")));
+    }
+    const days = lastBackup ? daysSince(lastBackup) : null;
+    if (allPosts.length && (days == null || days >= BACKUP_DAYS)) {
+      out.push(h("div", { class: "alert backup" },
+        h("span", null, "💾 ", days == null ? "아직 엑셀 백업을 한 적이 없어요." : "마지막 엑셀 백업이 " + days + "일 전이에요.",
+          " 무료 Supabase 는 자동 백업이 없으니 2주에 한 번은 내려받아 두세요."),
+        h("button", { class: "btn small primary", type: "button", onclick: fullBackup }, "지금 전체 백업")));
+    }
+    $("#alerts").replaceChildren(...out);
+    $("#backupInfo").textContent = "마지막 백업: " + (days == null ? "없음" : days === 0 ? "오늘" : days + "일 전");
+  }
+
+  async function markBackup() {
+    try {
+      await rpc("admin_mark_backup", { p_pw: pw });
+      lastBackup = new Date().toISOString();
+      renderAlerts();
+    } catch (e) { toast(e.message, true); }
+  }
+
+  async function fullBackup() {
+    try {
+      await writeWorkbook(allPosts.map((p) => ({ post: p, entries: p.entries })), "독서현황_전체백업_" + fileName("xlsx").slice(5));
+      await markBackup();
+      toast("전체 백업 파일을 내려받았어요.");
     } catch (e) { toast(e.message, true); }
   }
 
@@ -337,6 +400,7 @@
     const season = filters.elements.season.value;
     posts = season === "*" ? allPosts : allPosts.filter((p) => (p.season || "") === season);
     renderSeasons();
+    renderAlerts();
     renderStats();
     renderClasses();
     const list = filtered();
@@ -476,8 +540,15 @@
   }
 
   $("#xlsxBtn").addEventListener("click", async () => {
-    try { await writeWorkbook(filtered(), fileName("xlsx")); } catch (e) { toast(e.message, true); }
+    try {
+      const list = filtered();
+      await writeWorkbook(list, fileName("xlsx"));
+      // 필터 없이 모든 글을 받았으면 전체 백업으로 칩니다.
+      const count = (l) => l.reduce((n, x) => n + x.entries.length, 0);
+      if (count(list) === count(allPosts.map((p) => ({ entries: p.entries })))) markBackup();
+    } catch (e) { toast(e.message, true); }
   });
+  $("#backupBtn").addEventListener("click", fullBackup);
 
   // ---------- 학기 보관 ----------
   $("#archiveForm").addEventListener("submit", async (e) => {
@@ -495,6 +566,7 @@
       await writeWorkbook(current.map((p) => ({ post: p, entries: p.entries })),
         "독서현황_" + name.replace(/[\\/:*?"<>|\s]+/g, "_") + "_백업.xlsx");
     } catch (ex) { return toast("백업 파일을 만들지 못해 보관을 멈췄어요. " + ex.message, true); }
+    if (current.length === allPosts.length) markBackup();
     try {
       const res = await rpc("admin_archive_season", { p_pw: pw, p_name: name });
       input.value = "";
