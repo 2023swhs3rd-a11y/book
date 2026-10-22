@@ -315,6 +315,16 @@
     return out.slice(0, 4);
   }
 
+  // 서점 제목의 '(초판본)', '(리커버 한정판)', ': 오리지널 초판본 표지디자인' 같은 판 표시를 떼어 내야
+  // 같은 책끼리 잘 묶입니다.
+  const EDITION = /판|에디션|표지|리커버|양장|무선|큰글자|세트|special|edition/i;
+  function cleanTitle(t) {
+    let s = String(t || "").replace(/\s*[(\[][^)\]]*[)\]]/g, " ");
+    const i = s.search(/\s*[:：]/);
+    if (i > 0 && EDITION.test(s.slice(i))) s = s.slice(0, i);
+    return s.replace(/\s+/g, " ").trim() || String(t || "").trim();
+  }
+
   async function remoteBooks(q) {
     if (!remoteSearch) return [];
     if (remoteCache[q]) return remoteCache[q];
@@ -326,8 +336,7 @@
       const body = await res.json();
       if (!res.ok || !body.books) throw new Error(body.error || res.status);
       return (remoteCache[q] = body.books.map((b) => ({
-        // '(양장)', '(개정판)' 같은 판 표시는 떼어 내야 같은 책끼리 잘 묶입니다.
-        title: String(b.title).replace(/\s*[(\[](양장|반양장|무선|리커버|큰글자|[^)\]]*판)[)\]]\s*$/, "").trim(),
+        title: cleanTitle(b.title),
         author: (b.authors || []).join(", "), publisher: b.publisher,
         year: b.year, thumbnail: b.thumbnail, source: "kakao",
       })));
@@ -375,7 +384,13 @@
       const remote = await remoteBooks(raw);
       if (mine !== seq) return;   // 그사이 더 입력했으면 버림
       const seen = new Set(local.map((b) => norm(b.title) + "|" + norm(b.author)));
-      items = local.concat(remote.filter((b) => !seen.has(norm(b.title) + "|" + norm(b.author)))).slice(0, 8);
+      const extra = remote.filter((b) => {
+        const k = norm(b.title) + "|" + norm(b.author);
+        if (!b.author || seen.has(k)) return false;   // 저자 없는 항목과 같은 책 중복은 뺍니다
+        seen.add(k);
+        return true;
+      });
+      items = local.concat(extra).slice(0, 8);
       draw();
     }
     input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(update, 250); });
