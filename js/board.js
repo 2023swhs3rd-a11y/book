@@ -293,6 +293,132 @@
     likes: (a, b) => (b.like_count || 0) - (a.like_count || 0),
   };
 
+  // 띄어쓰기·문장부호·대소문자가 달라도 같은 책으로 봅니다.
+  const norm = (s) => String(s || "").toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "");
+
+  // ---------- 책 제목 자동완성: 게시판에 이미 있는 책 + 카카오 책 검색 ----------
+  // 카카오 검색은 Supabase 함수(book-search)를 거칩니다. 함수가 없으면 게시판 책만 보여 줍니다.
+  let remoteSearch = isConfigured();
+  const remoteCache = {};
+
+  function localBooks(q) {
+    const seen = new Set();
+    const out = [];
+    for (const p of posts) {
+      for (const e of p.entries || []) {
+        const key = norm(e.book_title) + "|" + norm(e.book_author);
+        if (seen.has(key) || !norm(e.book_title).includes(q)) continue;
+        seen.add(key);
+        out.push({ title: e.book_title, author: e.book_author, category: e.category, source: "board" });
+      }
+    }
+    return out.slice(0, 4);
+  }
+
+  async function remoteBooks(q) {
+    if (!remoteSearch) return [];
+    if (remoteCache[q]) return remoteCache[q];
+    try {
+      const key = cfg.SUPABASE_ANON_KEY;
+      const headers = { apikey: key };
+      if (key.startsWith("eyJ")) headers.Authorization = "Bearer " + key;
+      const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/" + (cfg.BOOK_SEARCH_FUNCTION || "book-search") + "?q=" + encodeURIComponent(q), { headers });
+      const body = await res.json();
+      if (!res.ok || !body.books) throw new Error(body.error || res.status);
+      return (remoteCache[q] = body.books.map((b) => ({
+        // '(양장)', '(개정판)' 같은 판 표시는 떼어 내야 같은 책끼리 잘 묶입니다.
+        title: String(b.title).replace(/\s*[(\[](양장|반양장|무선|리커버|큰글자|[^)\]]*판)[)\]]\s*$/, "").trim(),
+        author: (b.authors || []).join(", "), publisher: b.publisher,
+        year: b.year, thumbnail: b.thumbnail, source: "kakao",
+      })));
+    } catch (e) {
+      remoteSearch = false;   // 함수가 없거나 키가 없으면 이번 방문 동안은 게시판 책만
+      return [];
+    }
+  }
+
+  function setupBookSuggest(form) {
+    const input = form.book_title;
+    const list = h("ul", { class: "book-suggest", role: "listbox", hidden: true });
+    input.after(list);
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    let items = [], active = -1, timer, seq = 0;
+
+    function close() { list.hidden = true; active = -1; }
+    function choose(b) {
+      input.value = b.title;
+      form.book_author.value = b.author;
+      if (b.category && form.category && !form.category.value) form.category.value = b.category;
+      close();
+      form.book_author.dispatchEvent(new Event("input"));
+      (form.category && !form.category.value ? form.category : form.quote).focus();
+    }
+    function draw() {
+      list.replaceChildren(...items.map((b, i) => h("li", {
+          role: "option", class: "bs-item" + (i === active ? " active" : ""), "aria-selected": String(i === active),
+          onmousedown: (ev) => { ev.preventDefault(); choose(b); } },
+        b.thumbnail ? h("img", { src: b.thumbnail, alt: "", loading: "lazy" }) : h("span", { class: "bs-noimg" }, b.source === "board" ? "📌" : "📖"),
+        h("span", { class: "bs-text" },
+          h("b", null, b.title),
+          h("small", null, [b.author, b.publisher, b.year].filter(Boolean).join(" · "))),
+        b.source === "board" ? h("span", { class: "bs-tag" }, "게시판") : null)));
+      list.hidden = !items.length;
+    }
+    async function update() {
+      const raw = input.value.trim();
+      const q = norm(raw);
+      if (q.length < 2) return close();
+      const mine = ++seq;
+      const local = localBooks(q);
+      items = local; active = -1; draw();
+      const remote = await remoteBooks(raw);
+      if (mine !== seq) return;   // 그사이 더 입력했으면 버림
+      const seen = new Set(local.map((b) => norm(b.title) + "|" + norm(b.author)));
+      items = local.concat(remote.filter((b) => !seen.has(norm(b.title) + "|" + norm(b.author)))).slice(0, 8);
+      draw();
+    }
+    input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(update, 250); });
+    input.addEventListener("keydown", (e) => {
+      if (list.hidden) return;
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        draw();
+      } else if (e.key === "Enter" && active >= 0) {
+        e.preventDefault();
+        choose(items[active]);
+      } else if (e.key === "Escape") {
+        e.preventDefault();   // 창은 닫지 않고 목록만 닫기
+        close();
+      }
+    });
+    input.addEventListener("blur", () => setTimeout(close, 100));
+  }
+
+  // ---------- 많이 소개된 책 ----------
+  const topBooksEl = $("#topBooks");
+  function renderTopBooks(source) {
+    const books = new Map();   // 띄어쓰기를 뺀 제목 → { title, people }
+    for (const p of source) {
+      for (const e of p.entries || []) {
+        const key = norm(e.book_title);
+        if (!books.has(key)) books.set(key, { title: e.book_title, people: new Set() });
+        books.get(key).people.add(p.id);
+      }
+    }
+    const top = [...books.values()].filter((b) => b.people.size >= 2)
+      .sort((a, b) => b.people.size - a.people.size).slice(0, 5);
+    topBooksEl.hidden = !top.length;
+    const q = searchEl.value.trim();
+    topBooksEl.replaceChildren(h("span", { class: "top-label" }, "🏆 많이 소개된 책"),
+      ...top.map((b, i) => h("button", { type: "button", class: "top-book" + (q === b.title ? " on" : ""),
+        title: "이 책 글만 보기",
+        onclick: () => { searchEl.value = q === b.title ? "" : b.title; render(); } },
+        h("b", null, i + 1), "『" + b.title + "』 ", h("small", null, b.people.size + "명"))));
+  }
+
+  let lastShown = [];
   function render() {
     const q = searchEl.value.trim().toLowerCase();
     const cat = catFilter.value;
@@ -300,6 +426,8 @@
     const shown = source.filter((p) => (!q || matches(p, q)) && inGrade(p)
       && (!cat || (p.entries || []).some((e) => e.category === cat)));
     if (SORTS[sortSel.value]) shown.sort(SORTS[sortSel.value]);
+    lastShown = shown;
+    renderTopBooks(source);
     const filtering = q || cat || grade !== "all";
     const sorted = sortSel.value !== "recent";
 
@@ -326,6 +454,74 @@
     else statusEl.textContent = filtering ? shown.length + "개를 찾았어요." : "";
     statusEl.hidden = !statusEl.textContent;
   }
+
+  // ---------- 교실 전시 모드: 지금 보이는 말풍선을 하나씩 크게, 10초마다 넘김 ----------
+  const SHOW_MS = 10000;
+  const showcase = $("#showcase");
+  let showList = [], showIdx = 0, showTimer = null, showPaused = false;
+
+  function showSlide() {
+    const p = showList[showIdx];
+    const e = p.entries[p.entries.length - 1];
+    const teacher = p.role === "teacher";
+    $("#showStage").replaceChildren(h("article", { class: "show-card c-" + p.color + (teacher ? " teacher" : "") },
+      teacher ? h("span", { class: "teacher-tag" }, "🍎 선생님의 책") : null,
+      bookLine(e),
+      h("p", { class: "show-quote" }, e.quote),
+      h("footer", { class: "show-who" },
+        teacher ? "선생님 · " : "", p.student_no + " " + (p.author_name || p.display_name),
+        p.nickname ? " (" + p.nickname + ")" : "",
+        p.entries.length > 1 ? h("span", { class: "show-more" }, "📖 " + (p.entries.length - 1) + "번 이어 씀") : null,
+        p.like_count ? h("span", { class: "show-more" }, "❤️ " + p.like_count) : null)));
+    $("#showCount").textContent = (showIdx + 1) + " / " + showList.length;
+    const bar = $("#showProgress");
+    bar.style.animation = "none";
+    void bar.offsetWidth;   // 진행 막대 애니메이션을 처음부터 다시
+    bar.style.animation = showPaused ? "none" : "showbar " + SHOW_MS / 1000 + "s linear";
+    clearTimeout(showTimer);
+    if (!showPaused) showTimer = setTimeout(() => moveShow(1), SHOW_MS);
+  }
+  function moveShow(d) {
+    showIdx = (showIdx + d + showList.length) % showList.length;
+    showSlide();
+  }
+  function openShow() {
+    showList = lastShown.filter((p) => p.entries && p.entries.length);
+    if (!showList.length) return toast("보여 줄 말풍선이 없어요.", true);
+    showIdx = 0;
+    showPaused = false;
+    $("#showPause").textContent = "⏸";
+    $("#showTitle").textContent = cfg.TITLE || "독서나눔 릴레이";
+    showcase.hidden = false;
+    document.body.classList.add("show-open");
+    if (showcase.requestFullscreen) showcase.requestFullscreen().catch(() => {});
+    showSlide();
+  }
+  function closeShow() {
+    clearTimeout(showTimer);
+    showcase.hidden = true;
+    document.body.classList.remove("show-open");
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  }
+  $("#showBtn").addEventListener("click", openShow);
+  $("#showClose").addEventListener("click", closeShow);
+  $("#showPrev").addEventListener("click", () => moveShow(-1));
+  $("#showNext").addEventListener("click", () => moveShow(1));
+  $("#showPause").addEventListener("click", () => {
+    showPaused = !showPaused;
+    $("#showPause").textContent = showPaused ? "▶︎ 재생" : "⏸";
+    showSlide();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (showcase.hidden) return;
+    if (e.key === "ArrowRight") moveShow(1);
+    else if (e.key === "ArrowLeft") moveShow(-1);
+    else if (e.key === "Escape") closeShow();
+    else if (e.key === " ") { e.preventDefault(); $("#showPause").click(); }
+  });
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && !showcase.hidden) closeShow();
+  });
 
   // ---------- 예시 화면 ----------
   const { EXAMPLE_POST, DEMO_POSTS } = window.BoardExamples;
@@ -398,6 +594,7 @@
   const updatePostCount = setupCounter(postForm);
   const updateAddCount = setupCounter(addForm);
   const updateEditCount = setupCounter(editForm);
+  [postForm, addForm, editForm].forEach(setupBookSuggest);
 
   for (const dlg of [postDialog, addDialog, editDialog]) {
     dlg.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => dlg.close()));
@@ -655,7 +852,7 @@
 
   load();
   setInterval(() => {
-    if (document.visibilityState !== "visible" || demo || postDialog.open || addDialog.open || editDialog.open) return;
+    if (document.visibilityState !== "visible" || demo || !showcase.hidden || postDialog.open || addDialog.open || editDialog.open) return;
     // 댓글을 쓰는 중이면 화면을 다시 그리지 않습니다.
     const typing = [...boardEl.querySelectorAll(".comment-form textarea, .comment-form input[name=pin]")]
       .some((el) => el.value || el === document.activeElement);

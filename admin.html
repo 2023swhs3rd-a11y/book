@@ -6,8 +6,8 @@
   <meta name="robots" content="noindex">
   <title>관리자 · 봉일천고 독서나눔 릴레이</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022d">
-  <link rel="stylesheet" href="css/admin.css?v=20261022d">
+  <link rel="stylesheet" href="css/style.css?v=20261022g">
+  <link rel="stylesheet" href="css/admin.css?v=20261022g">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -20,6 +20,7 @@
         </div>
       </div>
       <div class="toolbar" id="adminTools" hidden>
+        <button class="btn small" id="qrBtn" type="button">🖨 QR 포스터</button>
         <button class="btn small" id="pwBtn" type="button">비밀번호 변경</button>
         <button class="btn small" id="logoutBtn" type="button">로그아웃</button>
       </div>
@@ -58,6 +59,17 @@
             <textarea name="words" rows="4"></textarea>
             <div class="inline end"><button class="btn small primary" type="submit">금지어 저장</button></div>
           </form>
+        </div>
+      </details>
+
+      <details class="settings" id="classBox">
+        <summary>🏫 학급별 참여 현황</summary>
+        <div class="class-body">
+          <p class="hint">학번(예: 20315 → 2학년 3반)으로 묶었어요. 숨긴 글도 포함하며, 엑셀로 내려받으면 '학급별 현황' 시트에도 들어가요.</p>
+          <div class="table-wrap"><table class="admin-table class-table">
+            <thead><tr><th>학년·반</th><th>참여 학생</th><th>게시물</th><th>글(이어쓰기 포함)</th><th>쓴 댓글</th><th>받은 공감</th><th>참여 학생 명단</th></tr></thead>
+            <tbody id="classRows"></tbody>
+          </table></div>
         </div>
       </details>
 
@@ -128,8 +140,11 @@
     </section>
   </main>
 
-  <script src="js/config.js?v=20261022d"></script>
-  <script src="js/common.js?v=20261022d"></script>
-  <script src="js/admin.js?v=20261022d"></script>
+  <!-- 인쇄용 QR 포스터 -->
+  <section id="poster" class="poster" aria-hidden="true"></section>
+
+  <script src="js/config.js?v=20261022g"></script>
+  <script src="js/common.js?v=20261022g"></script>
+  <script src="js/admin.js?v=20261022g"></script>
 </body>
 </html>

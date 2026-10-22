@@ -10,4 +10,7 @@ window.BOARD_CONFIG = {
   // 화면 상단에 보일 게시판 이름과 안내 문구
   TITLE: "봉일천고 독서나눔 릴레이",
   SUBTITLE: "지금 읽고 있는 책과 마음에 남은 문장을 말풍선으로 이어 나눠요",
+
+  // 책 제목 자동완성(카카오 검색) 함수의 주소 이름. Supabase > Edge Functions 목록의 URL 끝부분과 같아야 합니다.
+  BOOK_SEARCH_FUNCTION: "rapid-responder",
 };

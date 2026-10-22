@@ -419,6 +419,67 @@ legend { font-weight: 800; font-size: 14px; color: var(--accent); margin-bottom:
   padding: 8px 14px; font-weight: 600; font-size: 14px; cursor: pointer;
 }
 
+/* 책 제목 자동완성 */
+.book-suggest {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 30; margin: 4px 0 0; padding: 4px;
+  list-style: none; background: #fff; border: 1px solid #ddd2c2; border-radius: 12px;
+  box-shadow: 0 12px 28px -10px rgba(60, 40, 10, .35); max-height: 320px; overflow-y: auto;
+}
+.bs-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-weight: 400; }
+.bs-item:hover, .bs-item.active { background: #fff3e4; }
+.bs-item img, .bs-noimg { width: 32px; height: 44px; flex: none; border-radius: 3px; object-fit: cover; background: #f3ece0; display: grid; place-items: center; font-size: 16px; }
+.bs-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.bs-text b { font-size: 14.5px; }
+.bs-text small { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bs-tag { margin-left: auto; flex: none; font-size: 11px; font-weight: 700; color: var(--accent); border: 1px solid #f3c6aa; border-radius: 999px; padding: 0 7px; }
+
+/* 많이 소개된 책 */
+.top-books { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 14px; }
+.top-label { font-weight: 800; font-size: 14px; margin-right: 2px; }
+.top-book {
+  border: 1px solid #ecd3ac; background: #fff8ea; border-radius: 999px; padding: 4px 12px 4px 5px;
+  font-size: 13.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.top-book b {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 4px;
+  border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px;
+}
+.top-book small { color: var(--muted); font-weight: 600; }
+.top-book:hover { background: #fff1d6; }
+.top-book.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.top-book.on small { color: #ffe9dc; }
+.top-book.on b { background: #fff; color: var(--accent); }
+
+/* 교실 전시 모드 */
+.showcase {
+  position: fixed; inset: 0; z-index: 200; display: flex; flex-direction: column;
+  background-color: var(--paper);
+  background-image: radial-gradient(1200px 600px at 10% -10%, rgba(255, 214, 165, .5), transparent 60%), url("../img/bg-pattern.svg");
+}
+body.show-open { overflow: hidden; }
+.show-stage { flex: 1; display: grid; place-items: center; padding: 4vh 6vw 2vh; min-height: 0; }
+.show-card {
+  position: relative; width: min(1100px, 100%); max-height: 100%; overflow: auto;
+  background: var(--bg); border-radius: 40px; padding: 5vh 5vw 4vh;
+  box-shadow: 0 2px 4px rgba(60, 40, 10, .08), 0 20px 50px -20px rgba(60, 40, 10, .35);
+  animation: pop .35s ease-out;
+}
+.show-card.teacher { --bg: #fffaf0; --bd: #c8955f; --tone: #8a4b1f; border: 3px solid var(--bd); border-radius: 18px 48px 18px 48px; }
+.show-card .teacher-tag { font-size: 18px; top: -18px; left: 30px; padding: 4px 14px; }
+.show-card .book { gap: 6px 16px; margin-bottom: 2.5vh; }
+.show-card .book-title { font-size: clamp(26px, 3.4vw, 46px); }
+.show-card .book-author { font-size: clamp(18px, 2vw, 26px); }
+.show-card .cat-chip { font-size: clamp(14px, 1.4vw, 18px); padding: 2px 14px; }
+.show-quote { margin: 0; white-space: pre-wrap; font-size: clamp(24px, 2.9vw, 40px); line-height: 1.6; font-weight: 500; }
+.show-who { margin-top: 3vh; font-size: clamp(18px, 1.8vw, 24px); font-weight: 700; color: var(--tone); display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; }
+.show-more { font-size: .85em; font-weight: 600; color: var(--muted); }
+.show-bar { display: flex; align-items: center; gap: 8px; padding: 10px 24px 12px; }
+.show-title { font-weight: 800; font-size: 18px; margin-right: auto; }
+.show-count { color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; margin-right: 8px; }
+.show-progress { height: 5px; background: rgba(0, 0, 0, .06); }
+.show-progress span { display: block; height: 100%; width: 0; background: var(--accent); }
+@keyframes showbar { from { width: 0; } to { width: 100%; } }
+
 /* 불러오는 중 */
 .skeleton {
   height: 170px; margin-bottom: 28px; border-radius: var(--radius);
@@ -446,6 +507,7 @@ legend { font-weight: 800; font-size: 14px; color: var(--accent); margin-bottom:
   .board-page .subtitle { display: none; }
   .board[aria-busy] .col + .col { display: none; }
   .filter-bar { margin-bottom: 18px; gap: 8px; }
+  .top-books { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
   .grade-tabs { width: 100%; overflow-x: auto; scrollbar-width: none; }
   .grade-tabs button { flex: 1 0 auto; padding: 7px 10px; font-size: 14.5px; }
   .filter-selects { width: 100%; }

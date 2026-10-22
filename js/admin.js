@@ -1,7 +1,8 @@
 // 관리자 화면: 조회 · 필터 · 숨김 · 삭제 · 비밀번호 초기화 · CSV/XLSX 내보내기
 (function () {
-  const { COLORS, CATEGORIES, isConfigured, rpc, fmtDate, h, toast } = window.Board;
+  const { cfg, COLORS, CATEGORIES, isConfigured, rpc, fmtDate, h, toast } = window.Board;
   const XLSX_SRC = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+  const QR_SRC = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js";
   const PW_KEY = "board-admin-pw";
 
   const $ = (sel) => document.querySelector(sel);
@@ -138,6 +139,94 @@
         .map(([k, v]) => h("div", { class: "stat" }, h("b", null, v), h("span", null, k))));
   }
 
+  // ---------- 학급별 참여 현황 ----------
+  // 학번 20315 → 2학년 3반 (4자리 2315 도 2학년 3반으로 봅니다)
+  function classOf(sno) {
+    const m = String(sno || "").match(/^([1-3])(\d{2})\d{2}$/) || String(sno || "").match(/^([1-3])(\d)\d{2}$/);
+    return m ? { grade: +m[1], cls: +m[2], label: m[1] + "학년 " + +m[2] + "반" } : null;
+  }
+
+  function classStats() {
+    const map = new Map();
+    const get = (c) => {
+      if (!map.has(c.label)) map.set(c.label, { ...c, students: new Map(), posts: 0, entries: 0, comments: 0, likes: 0 });
+      return map.get(c.label);
+    };
+    for (const p of posts) {
+      if (p.role === "teacher") continue;
+      const c = classOf(p.student_no);
+      if (c) {
+        const row = get(c);
+        row.students.set(p.student_no + p.author_name, p.student_no + " " + p.author_name);
+        row.posts += 1;
+        row.entries += (p.entries || []).length;
+        row.likes += p.like_count || 0;
+      }
+      for (const cm of p.comments || []) {
+        const cc = classOf(cm.student_no);
+        if (cc) get(cc).comments += 1;
+      }
+    }
+    return [...map.values()].sort((a, b) => a.grade - b.grade || a.cls - b.cls);
+  }
+
+  function renderClasses() {
+    const rows = classStats();
+    $("#classRows").replaceChildren(...(rows.length
+      ? rows.map((r) => h("tr", null,
+          h("td", { "data-label": "학년·반" }, h("b", null, r.label)),
+          h("td", { "data-label": "참여 학생" }, r.students.size + "명"),
+          h("td", { "data-label": "게시물" }, r.posts),
+          h("td", { "data-label": "글" }, r.entries),
+          h("td", { "data-label": "쓴 댓글" }, r.comments),
+          h("td", { "data-label": "받은 공감" }, r.likes),
+          h("td", { "data-label": "명단", class: "names" }, [...r.students.values()].sort().join(", "))))
+      : [h("tr", null, h("td", { colspan: 7, class: "empty" }, "학번으로 학급을 알 수 있는 글이 아직 없어요."))]));
+  }
+
+  function classSheetRows() {
+    return classStats().map((r) => ({
+      "학년": r.grade, "반": r.cls, "참여 학생 수": r.students.size, "게시물": r.posts,
+      "글(이어쓰기 포함)": r.entries, "쓴 댓글": r.comments, "받은 공감": r.likes,
+      "참여 학생 명단": [...r.students.values()].sort().join(", "),
+    }));
+  }
+
+  // ---------- QR 포스터 ----------
+  function loadScript(src, name) {
+    if (window[name]) return Promise.resolve(window[name]);
+    return new Promise((resolve, reject) => {
+      const s = h("script", { src });
+      s.onload = () => resolve(window[name]);
+      s.onerror = () => reject(new Error("도구를 불러오지 못했어요. 인터넷 연결을 확인해 주세요."));
+      document.head.append(s);
+    });
+  }
+
+  $("#qrBtn").addEventListener("click", async () => {
+    try {
+      const qrcode = await loadScript(QR_SRC, "qrcode");
+      const url = new URL("./", location.href).href;
+      const qr = qrcode(0, "M");
+      qr.addData(url);
+      qr.make();
+      const box = h("div", { class: "p-qr" });
+      box.innerHTML = qr.createSvgTag({ cellSize: 8, margin: 0, scalable: true });
+      $("#poster").replaceChildren(
+        h("div", { class: "p-icon" }, "📚"),
+        h("h1", null, cfg.TITLE || "독서나눔 릴레이"),
+        h("p", { class: "p-sub" }, cfg.SUBTITLE || "지금 읽고 있는 책을 말풍선으로 소개해 주세요"),
+        box,
+        h("p", { class: "p-steps" }, "📱 휴대폰 카메라로 QR 코드를 비추고", h("br"), "✏️ [글쓰기] 를 눌러 읽고 있는 책을 소개해 주세요!"),
+        h("p", { class: "p-url" }, url));
+      document.body.classList.add("printing-poster");
+      setTimeout(() => {
+        window.print();
+        document.body.classList.remove("printing-poster");
+      }, 100);
+    } catch (e) { toast(e.message, true); }
+  });
+
   function postRow({ post: p, entries }) {
     const last = p.entries[p.entries.length - 1];
     const open = expanded.has(p.id);
@@ -208,6 +297,7 @@
 
   function render() {
     renderStats();
+    renderClasses();
     const list = filtered();
     const entryCount = list.reduce((n, x) => n + x.entries.length, 0);
     $("#resultCount").textContent = "조건에 맞는 게시물 " + list.length + "개 · 글 " + entryCount + "개";
@@ -328,6 +418,12 @@
       const s2 = XLSX.utils.json_to_sheet(summaryRows());
       s2["!cols"] = [8, 10, 10, 12, 6, 8, 8, 50, 17, 17, 8].map((w) => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, s2, "학생별 요약");
+      const classes = classSheetRows();
+      if (classes.length) {
+        const s4 = XLSX.utils.json_to_sheet(classes);
+        s4["!cols"] = [6, 6, 10, 8, 14, 8, 8, 80].map((w) => ({ wch: w }));
+        XLSX.utils.book_append_sheet(wb, s4, "학급별 현황");
+      }
       const comments = commentRows();
       if (comments.length) {
         const s3 = XLSX.utils.json_to_sheet(comments);
