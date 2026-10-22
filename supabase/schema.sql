@@ -470,3 +470,6 @@ to anon, authenticated;
 insert into public.admin_config (id, pw_hash)
 values (1, extensions.crypt('여기에-관리자-비밀번호', extensions.gen_salt('bf')))
 on conflict (id) do nothing;
+
+-- 새로 만든 함수를 API 가 바로 알아보도록 목록을 새로 고칩니다.
+notify pgrst, 'reload schema';
