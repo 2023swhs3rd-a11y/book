@@ -19,7 +19,7 @@
 .settings-body { display: grid; grid-template-columns: 1fr 1.4fr; gap: 20px; padding: 0 16px 16px; }
 .setting h3 { margin: 0 0 4px; font-size: 15px; display: flex; gap: 8px; align-items: center; }
 .setting .hint { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
-.setting input, .setting textarea {
+.setting input, .setting textarea, #archiveForm input {
   width: 100%; padding: 9px 12px; border: 1px solid #ddd2c2; border-radius: 10px; background: #fffdf9; font-size: 15px;
 }
 .setting textarea { resize: vertical; line-height: 1.6; }
@@ -34,7 +34,7 @@
 .stat span { font-size: 13px; color: var(--muted); }
 
 .filters {
-  display: grid; grid-template-columns: 2fr 1.2fr 1fr 1fr 1fr 1fr 1fr 1fr auto; gap: 12px; align-items: end;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: end;
   background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px;
 }
 .filters > * { min-width: 0; }
@@ -69,6 +69,15 @@
 .pill.off { background: #eee; color: #777; }
 .pill.teacher { background: #b5532f; color: #fff; }
 .pill.report { background: #fde3df; color: #b3261e; margin-left: 4px; }
+.pill.pin { background: #ffe6d6; color: #b9541f; margin-left: 4px; }
+.pill.season { background: #e8e4f7; color: #4b329a; margin-left: 4px; }
+
+/* 학기 보관 */
+#archiveForm { display: flex; gap: 8px; flex-wrap: wrap; }
+#archiveForm input { flex: 1 1 220px; width: auto; }
+.season-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.season-list li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #faf5ee; border-radius: 10px; font-size: 14px; }
+.season-list li .btn { margin-left: auto; }
 .report-box { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: #fff1ef; border: 1px solid #f3c4bd; }
 .report-box h4 { margin: 0 0 6px; font-size: 14px; color: #b3261e; display: flex; align-items: center; gap: 8px; }
 .report-box h4 .btn { margin-left: auto; }
@@ -111,12 +120,38 @@ tr.detail .entry-list li { --bd: var(--line); }
   #poster .p-url { font-size: 12pt; color: #6b6157; word-break: break-all; }
 }
 
+/* 인쇄용 학생별 독서 기록 카드 (화면에서는 숨김) */
+.cards { display: none; }
+@media print {
+  body.printing-cards > *:not(#cards) { display: none !important; }
+  body.printing-cards { background: #fff; }
+  body.printing-cards #cards { display: block; color: #2b2620; font-size: 10.5pt; }
+  .rc { break-after: page; }
+  .rc:last-child { break-after: auto; }
+  .rc h1 { margin: 0 0 1mm; font-size: 20pt; letter-spacing: -0.02em; }
+  .rc .rc-school { margin: 0 0 5mm; color: #6b6157; font-size: 10pt; }
+  .rc table { width: 100%; border-collapse: collapse; }
+  .rc th, .rc td { border: 0.3mm solid #b8aa98; padding: 2mm 2.5mm; text-align: left; vertical-align: top; }
+  .rc th { background: #f4ece1; font-weight: 700; white-space: nowrap; }
+  .rc .rc-info { margin-bottom: 4mm; }
+  .rc .rc-sum { margin: 0 0 4mm; line-height: 1.6; }
+  .rc .rc-list td.q { white-space: pre-wrap; }
+  .rc .rc-list th:nth-child(1) { width: 5%; }
+  .rc .rc-list th:nth-child(2) { width: 12%; }
+  .rc .rc-list th:nth-child(3) { width: 18%; }
+  .rc .rc-list th:nth-child(4) { width: 12%; }
+  .rc .rc-list th:nth-child(5) { width: 10%; }
+  .rc .rc-list td.n, .rc .rc-list td.d { white-space: nowrap; }
+  .rc .rc-list tr { break-inside: avoid; }
+  .rc .rc-foot { margin-top: 4mm; color: #6b6157; font-size: 9pt; text-align: right; }
+}
+
 /* 모바일: 표 대신 카드 */
 @media (max-width: 900px) {
   .settings-body { grid-template-columns: 1fr; }
   .stats { grid-template-columns: repeat(3, 1fr); }
   .filters { grid-template-columns: 1fr 1fr; }
-  .filters label:first-child { grid-column: 1 / -1; }
+  .filters label:nth-child(2) { grid-column: 1 / -1; order: -1; }
   .filter-actions { grid-column: 1 / -1; }
 }
 @media (max-width: 640px) {

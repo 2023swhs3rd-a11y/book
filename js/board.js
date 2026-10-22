@@ -37,6 +37,12 @@
   }
   const liked = new Set(store("reading-board-liked", []));
 
+  // 이 기기에서 쓴 말풍선과, 그 말풍선의 댓글을 마지막으로 몇 개까지 봤는지 (새 댓글 알림용)
+  const MINE_KEY = "reading-board-mine";
+  const mine = store(MINE_KEY, {});
+  function markMine(id, seen) { mine[id] = seen; keep(MINE_KEY, mine); }
+  function unseen(p) { return p.id in mine ? Math.max(0, (p.comment_count || 0) - mine[p.id]) : 0; }
+
   // 계열 선택칸 채우기
   document.querySelectorAll("select[data-categories]").forEach((sel) =>
     sel.append(...CATEGORIES.map((c) => h("option", { value: c }, c))));
@@ -64,8 +70,38 @@
         teacher ? h("span", { class: "role-chip" }, "선생님") : null,
         p.student_no ? h("span", { class: "sno" }, p.student_no) : null,
         h("span", { class: "name" }, p.author_name || p.display_name),
-        p.nickname ? h("span", { class: "nick" }, "(" + p.nickname + ")") : null),
+        p.nickname ? h("span", { class: "nick" }, "(" + p.nickname + ")") : null,
+        badgesOf(p)),
       h("time", { datetime: p.created_at, title: fmtDate(p.created_at, true) }, timeAgo(p.updated_at)));
+  }
+
+  // ---------- 독서 배지: 같은 사람(학번+이름)이 소개한 책 수와 계열 수로 정합니다 ----------
+  const BADGES = [
+    [10, "🥇", "책 10권 이상 소개"],
+    [5, "🥈", "책 5권 이상 소개"],
+    [3, "🥉", "책 3권 이상 소개"],
+  ];
+  let people = new Map();
+  const personKey = (p) => (p.role || "student") + "|" + norm(p.student_no) + "|" + norm(p.author_name || p.display_name);
+  function countPeople(source) {
+    people = new Map();
+    for (const p of source) {
+      const k = personKey(p);
+      if (!people.has(k)) people.set(k, { books: new Set(), cats: new Set() });
+      for (const e of p.entries || []) {
+        people.get(k).books.add(norm(e.book_title));
+        if (e.category && e.category !== "기타") people.get(k).cats.add(e.category);
+      }
+    }
+  }
+  function badgesOf(p) {
+    const r = people.get(personKey(p));
+    if (!r) return null;
+    const out = [];
+    const level = BADGES.find(([n]) => r.books.size >= n);
+    if (level) out.push(h("span", { class: "reader-badge", title: level[2] + " (" + r.books.size + "권)" }, level[1]));
+    if (r.cats.size >= 3) out.push(h("span", { class: "reader-badge", title: "3개 이상 계열의 책 소개 (" + r.cats.size + "개 계열)" }, "🌈"));
+    return out;
   }
 
   function renderPost(p, opts) {
@@ -77,9 +113,10 @@
     const initial = teacher ? "🍎" : (p.author_name || p.display_name || "?").trim().charAt(0);
 
     return h("article", {
-        class: "post c-" + p.color + (teacher ? " teacher" : "") + (more.length ? " has-more" : "") + (example ? " example" : ""),
+        class: "post c-" + p.color + (teacher ? " teacher" : "") + (more.length ? " has-more" : "") + (example ? " example" : "") + (p.pinned ? " pinned" : ""),
         dataset: { id: p.id },
       },
+      p.pinned ? h("div", { class: "pin-tag" }, "📌 선생님 추천") : null,
       h("div", { class: "bubble main" },
         example ? h("span", { class: "example-tag" }, "✨ 예시") : null,
         teacher ? h("span", { class: "teacher-tag" }, "🍎 선생님의 책") : null,
@@ -167,9 +204,12 @@
         wrap.replaceWith(commentSection(p, readOnly));
         if (!readOnly && openComments.has(p.id)) fetchComments(p.id);
       } },
-      "💬 댓글 ", h("b", null, count), open ? " ▴" : " ▾");
+      "💬 댓글 ", h("b", null, count), open ? " ▴" : " ▾",
+      !readOnly && !open && unseen(p) ? h("span", { class: "new-dot" }, "새 " + unseen(p)) : null);
     wrap.append(h("div", { class: "react-row" },
       likeButton(p, readOnly), toggle,
+      h("button", { class: "report-btn img-btn", type: "button", title: "이미지로 저장", "aria-label": "이 말풍선을 이미지로 저장하기",
+        onclick: () => saveImage(p) }, "🖼"),
       h("button", { class: "report-btn", type: "button", title: "신고하기", "aria-label": "이 말풍선 신고하기",
         onclick: () => (readOnly ? toast("예시 말풍선이에요.") : report(p)) }, "🚩")));
     if (!open) return wrap;
@@ -209,6 +249,10 @@
         fillComments(list, items, false);
         const b = list.parentElement.querySelector(".comment-toggle b");
         if (b) b.textContent = items.length;
+        if (postId in mine) {   // 내 말풍선의 댓글 창을 열어 봤으면 읽은 것으로
+          markMine(postId, items.length);
+          updateNotice();
+        }
       }
       commentsFailed = false;
     } catch (e) {
@@ -445,14 +489,19 @@
     const shown = source.filter((p) => (!q || matches(p, q)) && inGrade(p)
       && (!cat || (p.entries || []).some((e) => e.category === cat)));
     if (SORTS[sortSel.value]) shown.sort(SORTS[sortSel.value]);
+    shown.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));   // 선생님 추천은 언제나 맨 앞
     lastShown = shown;
+    countPeople(source);
     renderTopBooks(source);
+    updateNotice();
     const filtering = q || cat || grade !== "all";
     const sorted = sortSel.value !== "recent";
 
     const cards = shown.map((p) => renderPost(p));
-    // 실제 게시판 첫머리에는 작성 예시 말풍선을 하나 보여 줍니다. (실제 글이 10개가 넘으면 숨김)
-    if (!demo && !filtering && !sorted && posts.length < 10) cards.unshift(renderPost(EXAMPLE_POST, { example: true }));
+    // 실제 게시판 첫머리(추천 글 다음)에는 작성 예시 말풍선을 하나 보여 줍니다. (실제 글이 10개가 넘으면 숨김)
+    if (!demo && !filtering && !sorted && posts.length < 10) {
+      cards.splice(shown.filter((p) => p.pinned).length, 0, renderPost(EXAMPLE_POST, { example: true }));
+    }
     layout(cards);
     clampCheck();
     if (flashId != null) {
@@ -472,6 +521,185 @@
     else if (!shown.length) statusEl.textContent = q ? "‘" + searchEl.value.trim() + "’ 검색 결과가 없어요." : "조건에 맞는 말풍선이 아직 없어요.";
     else statusEl.textContent = filtering ? shown.length + "개를 찾았어요." : "";
     statusEl.hidden = !statusEl.textContent;
+  }
+
+  // ---------- 내 말풍선 새 댓글 알림 (이 기기에서 쓴 말풍선만) ----------
+  const noticeEl = $("#myNotice");
+  function updateNotice() {
+    const fresh = demo ? [] : posts.filter((p) => unseen(p));
+    const n = fresh.reduce((sum, p) => sum + unseen(p), 0);
+    noticeEl.hidden = !n;
+    if (n) noticeEl.replaceChildren(h("span", null, "💬 내 말풍선에 새 댓글 ", h("b", null, n + "개"), "가 달렸어요"), h("span", { class: "go" }, "보러 가기 ›"));
+  }
+  noticeEl.addEventListener("click", () => {
+    const p = posts.find((x) => unseen(x));
+    if (!p) return updateNotice();
+    if (!lastShown.includes(p)) {   // 필터에 가려져 있으면 필터를 풀고 찾아갑니다
+      searchEl.value = "";
+      catFilter.value = "";
+      grade = "all";
+      document.querySelectorAll("[data-grade]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.grade === "all")));
+    }
+    openComments.add(p.id);
+    render();
+    fetchComments(p.id);
+    const el = boardEl.querySelector('.post[data-id="' + p.id + '"]');
+    if (el) {
+      el.classList.remove("flash");
+      void el.offsetWidth;
+      el.classList.add("flash");
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  });
+
+  // ---------- 말풍선 이미지로 저장 ----------
+  // 화면의 말풍선 색을 그대로 써서 1080×1350(인스타그램 세로) 그림을 그립니다.
+  const PALETTE = {
+    yellow: ["#fff3b0", "#e9c94a", "#7a5d00"], pink: ["#ffd9e2", "#f08aa5", "#8f2a47"],
+    sky: ["#d6ecff", "#74b2ec", "#1d5788"], mint: ["#d3f5e9", "#5fc9a3", "#146b4f"],
+    lavender: ["#e7ddff", "#a58cf0", "#4b329a"], peach: ["#ffe2cc", "#f3a06b", "#8a4313"],
+    lime: ["#e6f6c4", "#a3cf4f", "#4b6a0e"], gray: ["#ebe9e6", "#b0aaa2", "#4a4540"],
+    teacher: ["#fffaf0", "#c8955f", "#8a4b1f"],
+  };
+  const FONT = "'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
+
+  // 단어 단위로 줄을 바꾸고, 한 단어가 너무 길면 글자 단위로 자릅니다.
+  function wrapText(ctx, text, maxW) {
+    const lines = [];
+    for (const para of String(text).split("\n")) {
+      let line = "";
+      for (const word of para.split(/(?<=\s)/)) {
+        if (ctx.measureText(line + word).width <= maxW) { line += word; continue; }
+        if (line.trim()) { lines.push(line.trimEnd()); line = ""; }
+        for (const ch of word.trimStart()) {
+          if (line && ctx.measureText(line + ch).width > maxW) { lines.push(line); line = ""; }
+          line += ch;
+        }
+      }
+      lines.push(line.trimEnd());
+    }
+    return lines;
+  }
+
+  function roundRect(ctx, x, y, w, hgt, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + hgt, r);
+    ctx.arcTo(x + w, y + hgt, x, y + hgt, r);
+    ctx.arcTo(x, y + hgt, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  async function drawCard(p) {
+    const e = p.entries[p.entries.length - 1];
+    const teacher = p.role === "teacher";
+    const [bg, bd, tone] = PALETTE[teacher ? "teacher" : p.color] || PALETTE.yellow;
+    const W = 1080, H = 1350, X = 90, CW = W - 180;
+    const c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    const ctx = c.getContext("2d");
+    try { await Promise.all(["400", "700", "800"].map((w) => document.fonts.load(w + " 40px 'Pretendard Variable'", "가A"))); } catch (err) {}
+    const font = (w, s) => (ctx.font = w + " " + s + "px " + FONT);
+
+    ctx.fillStyle = "#fff8ec";
+    ctx.fillRect(0, 0, W, H);
+    ctx.textBaseline = "alphabetic";
+    font(800, 34);
+    ctx.fillStyle = "#e8743b";
+    ctx.fillText(cfg.TITLE || "독서나눔 릴레이", X, 110);
+
+    // 먼저 글 크기를 재고, 글 길이에 맞춘 말풍선을 그림 가운데에 놓습니다.
+    const chip = [teacher ? "선생님의 책" : null, p.pinned ? "선생님 추천" : null, e.category].filter(Boolean).join(" · ");
+    font(800, 52);
+    const titleLines = wrapText(ctx, "『" + e.book_title + "』", CW).slice(0, 2);
+    const headH = (chip ? 70 : 0) + titleLines.length * 66 + 70;
+    const inner = 830;
+    // 내용: 짧은 글은 크게, 긴 글은 공간에 맞을 때까지 줄이고, 그래도 넘치면 말줄임
+    let size = 58, lines;
+    for (; size >= 28; size -= 2) {
+      font(400, size);
+      lines = wrapText(ctx, e.quote, CW);
+      if (headH + lines.length * size * 1.6 <= inner) break;
+    }
+    const lh = size * 1.6;
+    const max = Math.max(1, Math.floor((inner - headH) / lh));
+    if (lines.length > max) lines = lines.slice(0, max - 1).concat([lines[max - 1].replace(/.{0,2}$/, "") + "…"]);
+    const boxH = Math.max(560, headH + lines.length * lh + 140);
+    const top = 150 + Math.max(0, (1110 - boxH - 130) / 2), bottom = top + boxH;
+    // 말풍선
+    roundRect(ctx, X - 30, top, CW + 60, bottom - top, 44);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = bd;
+    ctx.stroke();
+    ctx.beginPath();   // 꼬리
+    ctx.moveTo(X + 40, bottom - 3);
+    ctx.lineTo(X + 30, bottom + 50);
+    ctx.lineTo(X + 100, bottom - 3);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(X + 40, bottom);
+    ctx.lineTo(X + 30, bottom + 50);
+    ctx.lineTo(X + 100, bottom);
+    ctx.stroke();
+    let y = top + 70 + 38 + (boxH - 140 - headH - lines.length * lh) / 2;
+
+    if (chip) {
+      font(700, 28);
+      const w = ctx.measureText(chip).width + 40;
+      roundRect(ctx, X, y - 38, w, 52, 26);
+      ctx.fillStyle = "rgba(255,255,255,.75)";
+      ctx.fill();
+      ctx.fillStyle = tone;
+      ctx.fillText(chip, X + 20, y - 2);
+      y += 70;
+    }
+    font(800, 52);
+    ctx.fillStyle = tone;
+    for (const line of titleLines) { ctx.fillText(line, X, y); y += 66; }
+    font(400, 32);
+    ctx.fillText(e.book_author, X, y);
+    y += 40;
+    ctx.strokeStyle = bd;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(X, y);
+    ctx.lineTo(X + 120, y);
+    ctx.stroke();
+    y += 30;
+    font(400, size);
+    ctx.fillStyle = "#2b2620";
+    for (const line of lines) { y += lh; ctx.fillText(line, X, y - lh * 0.3); }
+
+    // 작성자
+    const who = (teacher ? "선생님 · " : "") + [p.student_no, p.author_name || p.display_name].filter(Boolean).join(" ")
+      + (p.nickname ? " (" + p.nickname + ")" : "");
+    font(700, 34);
+    ctx.fillStyle = "#2b2620";
+    ctx.fillText(who, X + 150, bottom + 66);
+    font(400, 26);
+    ctx.fillStyle = "#6b6157";
+    ctx.fillText(fmtDate(e.created_at), X + 150, bottom + 108);
+    font(700, 26);
+    ctx.textAlign = "right";
+    ctx.fillText("함께 읽어요", W - X, H - 50);
+    return c;
+  }
+
+  const imgDialog = $("#imgDialog");
+  async function saveImage(p) {
+    try {
+      const url = (await drawCard(p)).toDataURL("image/png");
+      const e = p.entries[p.entries.length - 1];
+      $("#imgPreview").src = url;
+      const a = $("#imgDownload");
+      a.href = url;
+      a.download = "독서나눔_" + e.book_title.replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 30) + ".png";
+      imgDialog.showModal();
+    } catch (err) { toast("이미지를 만들지 못했어요.", true); }
   }
 
   // ---------- 교실 전시 모드: 지금 보이는 말풍선을 하나씩 크게, 10초마다 넘김 ----------
@@ -615,7 +843,7 @@
   const updateEditCount = setupCounter(editForm);
   [postForm, addForm, editForm].forEach(setupBookSuggest);
 
-  for (const dlg of [postDialog, addDialog, editDialog]) {
+  for (const dlg of [postDialog, addDialog, editDialog, imgDialog]) {
     dlg.querySelectorAll("[data-close]").forEach((b) => b.addEventListener("click", () => dlg.close()));
     dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
   }
@@ -719,6 +947,7 @@
         applyRole();
         toast("게시했어요! 🎉");
         flashId = created && created.id;
+        if (flashId != null) markMine(flashId, 0);
         await load();
       } catch (ex) {
         formError(f, ex.message);
@@ -761,6 +990,8 @@
           p_category: f.category.value,
         });
         if (result !== "OK") throw new Error(window.Board.ERROR_TEXT[result] || result);
+        const target = posts.find((x) => x.id === addTargetId);
+        if (target && !(target.id in mine)) markMine(target.id, target.comment_count || 0);   // 비밀번호를 아는 사람 = 글쓴이
         addDialog.close();
         toast("이어 썼어요! ✍️");
         await load();
@@ -827,6 +1058,7 @@
           p_category: f.category.value,
         });
         if (result !== "OK") throw new Error(window.Board.ERROR_TEXT[result] || result);
+        if (!(editPost.id in mine)) markMine(editPost.id, editPost.comment_count || 0);
         await afterEdit("고쳤어요! ✏️");
       } catch (ex) {
         formError(f, ex.message);

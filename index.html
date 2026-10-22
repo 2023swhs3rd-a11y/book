@@ -8,7 +8,7 @@
   <title>봉일천고 독서나눔 릴레이</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022i">
+  <link rel="stylesheet" href="css/style.css?v=20261022j">
 </head>
 <body class="board-page">
   <header class="topbar">
@@ -37,7 +37,9 @@
       <summary>📌 비방·거짓 정보는 <b>예고 없이 삭제</b>돼요. <span class="more">자세히</span></summary>
       <p>독서 나눔이라는 목적에 맞지 않는 글, <b>다른 사람을 비방하는 글</b>, <b>거짓 정보</b> 등은
       관리자가 <b>예고 없이 삭제</b>할 수 있어요. 댓글도 같아요. 서로의 독서를 응원하는 따뜻한 말을 남겨 주세요.</p>
+      <p class="rules-note">🏅 <b>독서 배지</b> · 이번 학기에 소개한 책이 3권이면 🥉, 5권이면 🥈, 10권이면 🥇, 서로 다른 계열(기타 제외)의 책을 3가지 이상 소개하면 🌈 배지가 이름 옆에 붙어요.</p>
     </details>
+    <button type="button" class="my-notice" id="myNotice" hidden></button>
     <div class="top-books" id="topBooks" hidden></div>
     <div class="filter-bar" id="filterBar">
       <div class="grade-tabs" role="group" aria-label="학년별 보기">
@@ -239,9 +241,25 @@
     </form>
   </dialog>
 
-  <script src="js/config.js?v=20261022i"></script>
-  <script src="js/common.js?v=20261022i"></script>
-  <script src="js/examples.js?v=20261022i"></script>
-  <script src="js/board.js?v=20261022i"></script>
+  <!-- 말풍선 이미지 저장 -->
+  <dialog id="imgDialog" class="sheet img-sheet">
+    <div class="sheet-head">
+      <h2>🖼 이미지로 저장</h2>
+      <button type="button" class="icon-btn" data-close aria-label="닫기">✕</button>
+    </div>
+    <div class="sheet-body">
+      <img id="imgPreview" class="img-preview" alt="말풍선 이미지 미리보기">
+      <p class="hint">휴대폰에서는 그림을 <b>길게 눌러</b> 사진첩에 저장할 수도 있어요.</p>
+    </div>
+    <div class="sheet-foot">
+      <button type="button" class="btn" data-close>닫기</button>
+      <a class="btn primary" id="imgDownload" href="#" download>⬇ 내려받기</a>
+    </div>
+  </dialog>
+
+  <script src="js/config.js?v=20261022j"></script>
+  <script src="js/common.js?v=20261022j"></script>
+  <script src="js/examples.js?v=20261022j"></script>
+  <script src="js/board.js?v=20261022j"></script>
 </body>
 </html>
