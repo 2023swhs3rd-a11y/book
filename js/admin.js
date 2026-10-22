@@ -1,6 +1,6 @@
 // 관리자 화면: 조회 · 필터 · 숨김 · 삭제 · 비밀번호 초기화 · CSV/XLSX 내보내기
 (function () {
-  const { COLORS, isConfigured, rpc, fmtDate, h, toast } = window.Board;
+  const { COLORS, CATEGORIES, isConfigured, rpc, fmtDate, h, toast } = window.Board;
   const XLSX_SRC = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
   const PW_KEY = "board-admin-pw";
 
@@ -9,6 +9,8 @@
   const filters = $("#filters");
   const rowsEl = $("#rows");
   const colorLabel = Object.fromEntries(COLORS.map((c) => [c.key, c.label]));
+  filters.elements.cat.append(...CATEGORIES.map((c) => h("option", { value: c }, c)));
+  const reportCount = (p) => (p.reports || []).length;
 
   let pw = null;
   let posts = [];
@@ -93,18 +95,20 @@
     const to = dayStart(f.to.value);
     const state = f.state.value;
     const role = f.role.value;
+    const cat = f.cat.value;
 
     const list = [];
     for (const p of posts) {
       if (state === "shown" && p.hidden) continue;
       if (state === "hidden" && !p.hidden) continue;
+      if (state === "reported" && !reportCount(p)) continue;
       if (role !== "all" && (p.role || "student") !== role) continue;
       if (sno && !(p.student_no || "").startsWith(sno)) continue;
-      const entries = (p.entries || []).filter((e) => inRange(e, from, to));
+      const entries = (p.entries || []).filter((e) => inRange(e, from, to) && (!cat || e.category === cat));
       if (!entries.length) continue;
       if (q) {
         const text = [p.author_name, p.nickname, p.student_no,
-          ...p.entries.flatMap((e) => [e.book_title, e.book_author, e.quote]),
+          ...p.entries.flatMap((e) => [e.book_title, e.book_author, e.quote, e.category]),
           ...(p.comments || []).flatMap((c) => [c.student_no, c.author_name, c.body])].join(" ").toLowerCase();
         if (!text.includes(q)) continue;
       }
@@ -114,6 +118,7 @@
     const sort = f.sort.value;
     if (sort === "sno") list.sort((a, b) => a.post.student_no.localeCompare(b.post.student_no, "ko", { numeric: true }));
     else if (sort === "count") list.sort((a, b) => b.post.entries.length - a.post.entries.length);
+    else if (sort === "reports") list.sort((a, b) => reportCount(b.post) - reportCount(a.post));
     return list;
   }
 
@@ -125,9 +130,11 @@
     const books = new Set(posts.flatMap((p) => (p.entries || []).map((e) => e.book_title.replace(/\s/g, "")))).size;
     const hidden = posts.filter((p) => p.hidden).length;
     const comments = posts.reduce((n, p) => n + (p.comments || []).length, 0);
+    const likes = posts.reduce((n, p) => n + (p.like_count || 0), 0);
+    const reported = posts.filter((p) => reportCount(p)).length;
     $("#stats").replaceChildren(
       ...[["게시물", posts.length], ["전체 글(이어쓰기 포함)", entries], ["참여 학생", students], ["교사 글", teachers],
-          ["소개된 책", books], ["댓글", comments], ["숨김", hidden]]
+          ["소개된 책", books], ["댓글", comments], ["공감", likes], ["🚩 신고된 글", reported], ["숨김", hidden]]
         .map(([k, v]) => h("div", { class: "stat" }, h("b", null, v), h("span", null, k))));
   }
 
@@ -145,7 +152,8 @@
       h("td", { "data-label": "댓글" }, (p.comments || []).length),
       h("td", { "data-label": "처음 작성" }, fmtDate(p.created_at, true)),
       h("td", { "data-label": "최근 활동" }, fmtDate(p.updated_at, true)),
-      h("td", { "data-label": "상태" }, p.hidden ? h("span", { class: "pill off" }, "숨김") : h("span", { class: "pill on" }, "게시 중")),
+      h("td", { "data-label": "상태" }, p.hidden ? h("span", { class: "pill off" }, "숨김") : h("span", { class: "pill on" }, "게시 중"),
+        reportCount(p) ? h("span", { class: "pill report" }, "🚩 " + reportCount(p)) : null),
       h("td", { class: "actions" },
         h("button", { class: "btn small", type: "button", onclick: () => { open ? expanded.delete(p.id) : expanded.add(p.id); render(); } }, open ? "접기" : "내용 보기"),
         h("button", { class: "btn small", type: "button",
@@ -162,11 +170,22 @@
 
     if (!open) return [tr];
     const detail = h("tr", { class: "detail" }, h("td", { colspan: 10 },
+      reportCount(p)
+        ? h("div", { class: "report-box" },
+            h("h4", null, "🚩 신고 " + reportCount(p) + "건",
+              h("button", { class: "btn small", type: "button",
+                onclick: () => act("admin_clear_reports", { p_post_id: p.id }, "신고를 확인 완료로 정리했어요.") }, "확인 완료(신고 지우기)")),
+            h("ul", null, p.reports.map((r) => {
+              const c = r.comment_id && (p.comments || []).find((x) => x.id === r.comment_id);
+              return h("li", null, (r.comment_id ? "댓글" + (c ? "(" + c.author_name + ": " + c.body.slice(0, 20) + ")" : "") : "말풍선") +
+                " · " + (r.reason || "이유 없음") + " · " + fmtDate(r.created_at, true));
+            })))
+        : null,
       h("ol", { class: "entry-list" }, p.entries.map((e, i) =>
         h("li", { class: entries.includes(e) ? "" : "dim" },
           h("div", { class: "entry-meta" },
             h("b", null, i === 0 ? "첫 글" : "이어쓰기 " + i),
-            " · 『" + e.book_title + "』 " + e.book_author + " · " + fmtDate(e.created_at, true),
+            " · 『" + e.book_title + "』 " + e.book_author + (e.category ? " · " + e.category : "") + " · " + fmtDate(e.created_at, true),
             i > 0 ? h("button", { class: "btn small danger", type: "button", onclick: () => {
               if (confirm("이 이어쓰기 글을 삭제할까요?")) act("admin_delete_entry", { p_entry_id: e.id }, "글을 삭제했어요.");
             } }, "이 글 삭제") : null),
@@ -178,6 +197,7 @@
               h("li", null,
                 h("div", { class: "entry-meta" },
                   h("b", null, c.student_no + " " + c.author_name), " · " + fmtDate(c.created_at, true),
+                  c.report_count ? h("span", { class: "pill report" }, "🚩 " + c.report_count) : null,
                   h("button", { class: "btn small danger", type: "button", onclick: () => {
                     if (confirm(c.author_name + " 님의 댓글을 삭제할까요?")) act("admin_delete_comment", { p_comment_id: c.id }, "댓글을 삭제했어요.");
                   } }, "댓글 삭제")),
@@ -215,6 +235,7 @@
           "글 구분": idx === 0 ? "첫 글" : "이어쓰기 " + idx,
           "책 제목": e.book_title,
           "저자": e.book_author,
+          "계열": e.category || "",
           "내용": e.quote,
           "작성일시": fmtDate(e.created_at, true),
           "말풍선 색": colorLabel[p.color] || p.color,
@@ -251,6 +272,7 @@
       "닉네임": p.nickname || "",
       "글 수": entries.length,
       "받은 댓글": (p.comments || []).length,
+      "받은 공감": p.like_count || 0,
       "읽은 책": [...new Set(entries.map((e) => "『" + e.book_title + "』 " + e.book_author))].join(", "),
       "처음 작성": fmtDate(entries[0].created_at, true),
       "마지막 작성": fmtDate(entries[entries.length - 1].created_at, true),
@@ -301,10 +323,10 @@
       const XLSX = await loadXlsx();
       const wb = XLSX.utils.book_new();
       const s1 = XLSX.utils.json_to_sheet(rows);
-      s1["!cols"] = [8, 8, 10, 10, 12, 10, 24, 14, 60, 17, 8, 8].map((w) => ({ wch: w }));
+      s1["!cols"] = [8, 8, 10, 10, 12, 10, 24, 14, 10, 60, 17, 8, 8].map((w) => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, s1, "전체 기록");
       const s2 = XLSX.utils.json_to_sheet(summaryRows());
-      s2["!cols"] = [8, 10, 10, 12, 6, 8, 50, 17, 17, 8].map((w) => ({ wch: w }));
+      s2["!cols"] = [8, 10, 10, 12, 6, 8, 8, 50, 17, 17, 8].map((w) => ({ wch: w }));
       XLSX.utils.book_append_sheet(wb, s2, "학생별 요약");
       const comments = commentRows();
       if (comments.length) {

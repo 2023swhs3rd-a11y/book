@@ -8,7 +8,7 @@
   <title>봉일천고 독서나눔 릴레이</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022c">
+  <link rel="stylesheet" href="css/style.css?v=20261022d">
 </head>
 <body class="board-page">
   <header class="topbar">
@@ -37,6 +37,24 @@
       <p>독서 나눔이라는 목적에 맞지 않는 글, <b>다른 사람을 비방하는 글</b>, <b>거짓 정보</b> 등은
       관리자가 <b>예고 없이 삭제</b>할 수 있어요. 댓글도 같아요. 서로의 독서를 응원하는 따뜻한 말을 남겨 주세요.</p>
     </details>
+    <div class="filter-bar" id="filterBar">
+      <div class="grade-tabs" role="group" aria-label="학년별 보기">
+        <button type="button" data-grade="all" aria-pressed="true">전체</button>
+        <button type="button" data-grade="1" aria-pressed="false">1학년</button>
+        <button type="button" data-grade="2" aria-pressed="false">2학년</button>
+        <button type="button" data-grade="3" aria-pressed="false">3학년</button>
+        <button type="button" data-grade="teacher" aria-pressed="false">🍎 선생님</button>
+      </div>
+      <div class="filter-selects">
+        <select id="catFilter" aria-label="계열별 보기"><option value="">📚 모든 계열</option></select>
+        <select id="sortSel" aria-label="정렬">
+          <option value="recent">최근 활동순</option>
+          <option value="new">새 글 순</option>
+          <option value="comments">💬 댓글 많은 순</option>
+          <option value="likes">❤️ 공감 많은 순</option>
+        </select>
+      </div>
+    </div>
     <div id="demoBanner" class="demo-banner" hidden>
       <span>👀 지금은 <b>예시 화면</b>이에요. 실제 글이 아니라 게시판이 채워지면 어떤 모습인지 보여 드려요.</span>
       <button class="btn small" type="button" data-demo-toggle>← 실제 게시판</button>
@@ -97,6 +115,9 @@
               <input name="book_author" maxlength="50" required placeholder="지은이" autocomplete="off">
             </label>
           </div>
+          <label><span data-label>계열</span> <b class="req">*</b>
+            <select name="category" required data-categories><option value="">계열을 골라 주세요</option></select>
+          </label>
           <label>읽고 있는 내용 · 기억에 남는 문구 <b class="req">*</b>
             <textarea name="quote" maxlength="500" rows="5" required placeholder="지금 읽고 있는 부분이나 마음에 남은 문장을 적어 주세요."></textarea>
             <span class="counter"><span data-count>0</span> / 500</span>
@@ -139,6 +160,9 @@
             <input name="book_author" maxlength="50" required autocomplete="off">
           </label>
         </div>
+        <label>계열
+          <select name="category" data-categories></select>
+        </label>
         <p class="hint">같은 책을 계속 읽고 있다면 그대로 두고, 다른 책으로 넘어갔다면 바꿔 주세요.</p>
         <label>더 읽은 내용 · 새로 남은 문구 <b class="req">*</b>
           <textarea name="quote" maxlength="500" rows="5" required placeholder="새로 읽은 부분이나 생각을 적어 주세요."></textarea>
@@ -176,6 +200,9 @@
             <input name="book_author" maxlength="50" required autocomplete="off">
           </label>
         </div>
+        <label>계열
+          <select name="category" data-categories></select>
+        </label>
         <label>내용 <b class="req">*</b>
           <textarea name="quote" maxlength="500" rows="5" required></textarea>
           <span class="counter"><span data-count>0</span> / 500</span>
@@ -191,9 +218,9 @@
     </form>
   </dialog>
 
-  <script src="js/config.js?v=20261022c"></script>
-  <script src="js/common.js?v=20261022c"></script>
-  <script src="js/examples.js?v=20261022c"></script>
-  <script src="js/board.js?v=20261022c"></script>
+  <script src="js/config.js?v=20261022d"></script>
+  <script src="js/common.js?v=20261022d"></script>
+  <script src="js/examples.js?v=20261022d"></script>
+  <script src="js/board.js?v=20261022d"></script>
 </body>
 </html>

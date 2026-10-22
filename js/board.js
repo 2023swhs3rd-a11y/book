@@ -1,6 +1,6 @@
 // 학생용 게시판 화면
 (function () {
-  const { cfg, COLORS, isConfigured, rpc, timeAgo, fmtDate, h, toast } = window.Board;
+  const { cfg, COLORS, CATEGORIES, isConfigured, rpc, timeAgo, fmtDate, h, toast } = window.Board;
   const REFRESH_MS = 20000;
 
   const $ = (sel) => document.querySelector(sel);
@@ -26,6 +26,22 @@
   function loadMe() { try { return JSON.parse(localStorage.getItem(ME_KEY)) || {}; } catch (e) { return {}; } }
   function saveMe(patch) { try { localStorage.setItem(ME_KEY, JSON.stringify(Object.assign(loadMe(), patch))); } catch (e) {} }
 
+  // 공감·신고는 로그인 없이 기기마다 한 번씩만 셉니다. (브라우저에 만든 임의의 기기 번호)
+  function store(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch (e) { return fallback; } }
+  function keep(key, v) { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} }
+  let device = store("reading-board-device", null);
+  if (!device) {
+    device = window.crypto && crypto.randomUUID ? crypto.randomUUID()
+      : Date.now().toString(36) + "-" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    keep("reading-board-device", device);
+  }
+  const liked = new Set(store("reading-board-liked", []));
+
+  // 계열 선택칸 채우기
+  document.querySelectorAll("select[data-categories]").forEach((sel) =>
+    sel.append(...CATEGORIES.map((c) => h("option", { value: c }, c))));
+  $("#catFilter").append(...CATEGORIES.map((c) => h("option", { value: c }, c)));
+
   if (cfg.TITLE) {
     $("#boardTitle").textContent = cfg.TITLE;
     document.title = cfg.TITLE;
@@ -36,7 +52,8 @@
   function bookLine(e) {
     return h("div", { class: "book" },
       h("span", { class: "book-title" }, "『" + e.book_title + "』"),
-      h("span", { class: "book-author" }, e.book_author));
+      h("span", { class: "book-author" }, e.book_author),
+      e.category ? h("span", { class: "cat-chip" }, e.category) : null);
   }
 
   // 말풍선 아래 작성자 표시: 학번(교사는 부서) 이름 (닉네임)
@@ -108,6 +125,36 @@
   }
 
   // ---------- 댓글 ----------
+  function likeButton(p, readOnly) {
+    const on = !readOnly && liked.has(p.id);
+    return h("button", { class: "like-btn" + (on ? " on" : ""), type: "button", "aria-pressed": String(on),
+      title: on ? "공감 취소" : "공감해요",
+      onclick: async (ev) => {
+        if (readOnly) return toast("예시 말풍선이에요. 실제 게시판에서 공감해 보세요!");
+        const btn = ev.currentTarget;
+        btn.disabled = true;
+        try {
+          const res = await rpc("toggle_like", { p_post_id: p.id, p_device: device });
+          p.like_count = res.count;
+          if (res.liked) liked.add(p.id); else liked.delete(p.id);
+          keep("reading-board-liked", [...liked]);
+          btn.replaceWith(likeButton(p, readOnly));
+        } catch (e) { toast(e.message, true); btn.disabled = false; }
+      } },
+      on ? "❤️ " : "🤍 ", h("b", null, p.like_count || 0));
+  }
+
+  async function report(p, comment) {
+    const what = comment ? "이 댓글" : "이 말풍선";
+    const reason = prompt(what + "을 관리자에게 신고할까요?\n신고 이유를 적어 주세요. (선택, 예: 비방, 거짓 정보, 목적과 무관)");
+    if (reason == null) return;
+    try {
+      await rpc("report", { p_post_id: p.id, p_comment_id: comment ? comment.id : null,
+        p_reason: reason.trim() || null, p_device: device });
+      toast("신고했어요. 관리자가 확인할게요.");
+    } catch (e) { toast(e.message, true); }
+  }
+
   function commentSection(p, readOnly) {
     const count = readOnly && p.comments ? p.comments.length : (p.comment_count || 0);
     const open = openComments.has(p.id);
@@ -119,7 +166,10 @@
         if (!readOnly && openComments.has(p.id)) fetchComments(p.id);
       } },
       "💬 댓글 ", h("b", null, count), open ? " ▴" : " ▾");
-    wrap.append(toggle);
+    wrap.append(h("div", { class: "react-row" },
+      likeButton(p, readOnly), toggle,
+      h("button", { class: "report-btn", type: "button", title: "신고하기", "aria-label": "이 말풍선 신고하기",
+        onclick: () => (readOnly ? toast("예시 말풍선이에요.") : report(p)) }, "🚩")));
     if (!open) return wrap;
 
     const list = h("ul", { class: "comment-list", dataset: { post: p.id } });
@@ -136,10 +186,16 @@
       h("div", { class: "comment-meta" },
         h("b", null, c.student_no), " ", h("b", null, c.author_name),
         h("time", { datetime: c.created_at, title: fmtDate(c.created_at, true) }, timeAgo(c.created_at)),
-        readOnly ? null : h("button", { class: "mini-btn", type: "button", onclick: () => removeComment(c) }, "삭제")),
+        readOnly ? null : h("span", { class: "comment-actions" },
+          h("button", { class: "mini-btn", type: "button", onclick: () => removeComment(c) }, "삭제"),
+          h("button", { class: "mini-btn", type: "button", onclick: () => {
+            const post = posts.find((x) => String(x.id) === list.dataset.post);
+            if (post) report(post, c);
+          } }, "신고"))),
       h("p", null, c.body))));
   }
 
+  let commentsFailed = false;   // 같은 오류 알림이 자동 새로고침마다 반복되지 않도록
   async function fetchComments(postId) {
     try {
       const items = await rpc("get_comments", { p_post_id: postId });
@@ -152,7 +208,11 @@
         const b = list.parentElement.querySelector(".comment-toggle b");
         if (b) b.textContent = items.length;
       }
-    } catch (e) { toast(e.message, true); }
+      commentsFailed = false;
+    } catch (e) {
+      if (!commentsFailed) toast(e.message, true);
+      commentsFailed = true;
+    }
   }
 
   function commentForm(p, readOnly) {
@@ -210,14 +270,42 @@
       .join(" ").toLowerCase().includes(q);
   }
 
+  // ---------- 학년 탭 · 계열 · 정렬 ----------
+  let grade = "all";
+  const catFilter = $("#catFilter");
+  const sortSel = $("#sortSel");
+  document.querySelectorAll("[data-grade]").forEach((b) => b.addEventListener("click", () => {
+    grade = b.dataset.grade;
+    document.querySelectorAll("[data-grade]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    render();
+  }));
+  catFilter.addEventListener("change", render);
+  sortSel.addEventListener("change", render);
+
+  function inGrade(p) {
+    if (grade === "all") return true;
+    if (grade === "teacher") return p.role === "teacher";
+    return p.role !== "teacher" && String(p.student_no || "").charAt(0) === grade;
+  }
+  const SORTS = {
+    new: (a, b) => new Date(b.created_at) - new Date(a.created_at),
+    comments: (a, b) => (b.comments ? b.comments.length : b.comment_count || 0) - (a.comments ? a.comments.length : a.comment_count || 0),
+    likes: (a, b) => (b.like_count || 0) - (a.like_count || 0),
+  };
+
   function render() {
     const q = searchEl.value.trim().toLowerCase();
+    const cat = catFilter.value;
     const source = demo ? DEMO_POSTS : posts;
-    const shown = q ? source.filter((p) => matches(p, q)) : source;
+    const shown = source.filter((p) => (!q || matches(p, q)) && inGrade(p)
+      && (!cat || (p.entries || []).some((e) => e.category === cat)));
+    if (SORTS[sortSel.value]) shown.sort(SORTS[sortSel.value]);
+    const filtering = q || cat || grade !== "all";
+    const sorted = sortSel.value !== "recent";
 
     const cards = shown.map((p) => renderPost(p));
     // 실제 게시판 첫머리에는 작성 예시 말풍선을 하나 보여 줍니다. (실제 글이 10개가 넘으면 숨김)
-    if (!demo && !q && posts.length < 10) cards.unshift(renderPost(EXAMPLE_POST, { example: true }));
+    if (!demo && !filtering && !sorted && posts.length < 10) cards.unshift(renderPost(EXAMPLE_POST, { example: true }));
     layout(cards);
     clampCheck();
     if (flashId != null) {
@@ -234,8 +322,8 @@
     demoBtns.forEach((b) => (b.textContent = demo ? "← 실제 게시판" : "👀 예시 화면"));
 
     if (!demo && !posts.length) statusEl.textContent = "아직 게시물이 없어요. 위 예시처럼 읽고 있는 책을 소개해 보세요!";
-    else if (!shown.length) statusEl.textContent = "‘" + searchEl.value.trim() + "’ 검색 결과가 없어요.";
-    else statusEl.textContent = q ? shown.length + "개를 찾았어요." : "";
+    else if (!shown.length) statusEl.textContent = q ? "‘" + searchEl.value.trim() + "’ 검색 결과가 없어요." : "조건에 맞는 말풍선이 아직 없어요.";
+    else statusEl.textContent = filtering ? shown.length + "개를 찾았어요." : "";
     statusEl.hidden = !statusEl.textContent;
   }
 
@@ -287,7 +375,7 @@
       // 열어 둔 댓글 창은 댓글 수가 바뀌었을 때만 다시 불러옵니다.
       for (const id of openComments) {
         const p = posts.find((x) => x.id === id);
-        if (p && (commentCache[id] || []).length !== p.comment_count) fetchComments(id);
+        if (p && p.comment_count != null && (commentCache[id] || []).length !== p.comment_count) fetchComments(id);
       }
       loaded = true;
     } catch (e) {
@@ -406,6 +494,7 @@
           p_quote: f.quote.value.trim(),
           p_book_title: f.book_title.value.trim(),
           p_book_author: f.book_author.value.trim(),
+          p_category: f.category.value,
         });
         saveMe({ role: f.elements.role.value, student_no: f.student_no.value.trim(),
           author_name: f.author_name.value.trim(), nickname: f.nickname.value.trim() });
@@ -432,6 +521,7 @@
     $("#addTarget").textContent = (p.author_name || p.display_name) + " 님의 『" + last.book_title + "』 말풍선에 이어 씁니다.";
     addForm.book_title.value = last.book_title;
     addForm.book_author.value = last.book_author;
+    addForm.category.value = last.category || "기타";
     addDialog.className = "sheet c-" + p.color + (p.role === "teacher" ? " teacher" : "");
     addDialog.showModal();
     updateAddCount();
@@ -452,6 +542,7 @@
           p_quote: f.quote.value.trim(),
           p_book_title: f.book_title.value.trim(),
           p_book_author: f.book_author.value.trim(),
+          p_category: f.category.value,
         });
         if (result !== "OK") throw new Error(window.Board.ERROR_TEXT[result] || result);
         addDialog.close();
@@ -475,6 +566,7 @@
     editForm.book_title.value = e.book_title;
     editForm.book_author.value = e.book_author;
     editForm.quote.value = e.quote;
+    editForm.category.value = e.category || "기타";
     updateEditCount();
   }
   editForm.entry.addEventListener("change", fillEntry);
@@ -516,6 +608,7 @@
           p_quote: f.quote.value.trim(),
           p_book_title: f.book_title.value.trim(),
           p_book_author: f.book_author.value.trim(),
+          p_category: f.category.value,
         });
         if (result !== "OK") throw new Error(window.Board.ERROR_TEXT[result] || result);
         await afterEdit("고쳤어요! ✏️");
