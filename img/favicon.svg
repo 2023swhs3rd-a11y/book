@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 쌓인 책 -->
+  <rect width="64" height="64" rx="14" fill="#fff8ec"/>
+  <rect x="12" y="44" width="40" height="9" rx="2" fill="#74b2ec"/>
+  <rect x="15" y="34" width="36" height="9" rx="2" fill="#5fc9a3"/>
+  <rect x="11" y="24" width="38" height="9" rx="2" fill="#f08aa5"/>
+  <rect x="16" y="13" width="32" height="9" rx="2" fill="#e8743b" transform="rotate(-7 32 17)"/>
+  <g stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".85">
+  <path d="M17 48.5h6M21 38.5h6M17 28.5h6M21 17.5h6"/>
+  </g>
+</svg>
