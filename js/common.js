@@ -17,10 +17,10 @@
   const CATEGORIES = ["소설", "시·에세이", "인문과학", "사회과학", "자연과학", "공학·기술", "예술·체육", "진로·자기계발", "기타"];
 
   // supabase/schema.sql 의 schema_version() 과 같아야 합니다. DB 구조를 바꾸면 둘 다 올려 주세요.
-  const SCHEMA_VERSION = 8;
+  const SCHEMA_VERSION = 9;
 
   // 화면 아래에 보이는 버전. 기능을 바꿀 때마다 올려 주세요.
-  const VERSION = "v1.16 (2026.10.22)";
+  const VERSION = "v1.17 (2026.10.25)";
 
   const ERROR_TEXT = {
     PIN_FORMAT: "비밀번호는 숫자 4자리로 입력해 주세요.",
@@ -28,17 +28,19 @@
     NOT_FOUND: "게시물을 찾을 수 없어요. 새로고침해 주세요.",
     TOO_MANY_ENTRIES: "한 게시물에는 30번까지 이어 쓸 수 있어요.",
     BAD_PIN: "비밀번호가 맞지 않아요.",
-    LOCKED: "비밀번호를 여러 번 틀려서 10분 동안 잠겼어요. 잠시 후 다시 시도해 주세요.",
+    LOCKED: "비밀번호를 여러 번 틀려서 잠겼어요. 잠시 후 다시 시도하거나, 비밀번호가 기억나지 않으면 선생님께 초기화를 부탁해 주세요.",
+    PIN_WEAK: "0000, 1234 처럼 쉬운 비밀번호는 쓸 수 없어요. 다른 숫자 4자리로 정해 주세요.",
+    BUSY: "지금 글이 한꺼번에 많이 올라오고 있어요. 1분쯤 뒤에 다시 시도해 주세요.",
     ADMIN_BAD_PASSWORD: "관리자 비밀번호가 맞지 않아요.",
-    ADMIN_LOCKED: "비밀번호를 5번 틀려 10분 동안 잠겼어요.",
+    ADMIN_LOCKED: "비밀번호를 5번 틀려 1분 동안 잠겼어요. 잠시 후 다시 시도해 주세요.",
     ADMIN_NOT_SET: "관리자 비밀번호가 설정되지 않았어요. schema.sql 을 다시 실행해 주세요.",
-    ADMIN_PW_TOO_SHORT: "새 비밀번호는 6자 이상이어야 해요.",
+    ADMIN_PW_TOO_SHORT: "새 비밀번호는 10자 이상이어야 해요.",
     TOO_FAST: "방금 글을 올렸어요. 1분 뒤에 다시 시도해 주세요.",
     BANNED_WORD: "바르지 않은 표현이 들어 있어요. 고운 말로 바꿔 주세요.",
     TEACHER_CODE: "교사 인증 코드가 맞지 않아요.",
     TEACHER_CODE_NOT_SET: "아직 교사 인증 코드가 설정되지 않았어요. 관리자에게 문의해 주세요.",
-    TEACHER_LOCKED: "교사 인증 코드를 여러 번 틀려서 10분 동안 교사 글쓰기가 잠겼어요.",
-    TEACHER_CODE_TOO_SHORT: "교사 인증 코드는 4자 이상이어야 해요.",
+    TEACHER_LOCKED: "교사 인증 코드를 여러 번 틀려서 1분 동안 교사 글쓰기가 잠겼어요.",
+    TEACHER_CODE_TOO_SHORT: "교사 인증 코드는 8자 이상이어야 해요.",
     TOO_FAST_COMMENT: "방금 댓글을 남겼어요. 잠시 뒤에 다시 시도해 주세요.",
     TOO_MANY_COMMENTS: "이 말풍선에는 댓글을 더 남길 수 없어요(최대 100개).",
     CATEGORY: "책 계열을 골라 주세요.",

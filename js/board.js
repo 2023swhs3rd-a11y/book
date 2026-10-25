@@ -1,7 +1,8 @@
 // 학생용 게시판 화면
 (function () {
   const { cfg, COLORS, CATEGORIES, isConfigured, rpc, timeAgo, fmtDate, h, toast, ask } = window.Board;
-  const REFRESH_MS = 20000;
+  const REFRESH_MS = 60000;
+  const PAGE = 60;   // 한 번에 그리는 말풍선 수 ('더 보기'로 이어서 그림)
 
   const $ = (sel) => document.querySelector(sel);
   const boardEl = $("#board");
@@ -20,6 +21,8 @@
   const commentCache = {};          // 말풍선 번호 → 댓글 목록
   const expanded = new Set();       // '더 읽기'로 펼친 글
   let flashId = null;               // 방금 쓴 말풍선
+  let revealId = null;              // '더 보기' 뒤에 있어도 그려야 하는 말풍선
+  let limit = PAGE, lastFilterKey = "";
 
   // 같은 기기에서는 학번·이름을 기억해 다음에 자동으로 채웁니다.
   const ME_KEY = "reading-board-me";
@@ -540,6 +543,13 @@
     if (SORTS[sortSel.value]) shown.sort(SORTS[sortSel.value]);
     shown.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));   // 선생님 추천은 언제나 맨 앞
     lastShown = shown;
+    // 검색·필터·정렬이 바뀌면 다시 처음 PAGE 개부터 보여 줍니다.
+    const filterKey = [q, cat, grade, sortSel.value, topic, demo].join("|");
+    if (filterKey !== lastFilterKey) { limit = PAGE; lastFilterKey = filterKey; }
+    const want = revealId ?? flashId;
+    revealId = null;
+    const at = want == null ? -1 : shown.findIndex((p) => p.id === want);
+    if (at >= limit) limit = Math.ceil((at + 1) / PAGE) * PAGE;
     countPeople(source);
     renderTopBooks(source);
     renderTopClasses(demo ? source : posts);
@@ -548,13 +558,16 @@
     const filtering = q || cat || grade !== "all" || topic;
     const sorted = sortSel.value !== "recent";
 
-    const cards = shown.map((p) => renderPost(p));
+    const cards = shown.slice(0, limit).map((p) => renderPost(p));
     // 실제 게시판 첫머리(추천 글 다음)에는 작성 예시 말풍선을 하나 보여 줍니다. (실제 글이 10개가 넘으면 숨김)
     if (!demo && !filtering && !sorted && posts.length < 10) {
       cards.splice(shown.filter((p) => p.pinned).length, 0, renderPost(EXAMPLE_POST, { example: true }));
     }
     layout(cards);
     clampCheck();
+    const rest = shown.length - limit;
+    moreBtn.hidden = rest <= 0;
+    if (rest > 0) moreBtn.textContent = "말풍선 더 보기 (" + rest + "개 남음)";
     if (flashId != null) {
       const el = boardEl.querySelector('.post[data-id="' + flashId + '"]');
       flashId = null;
@@ -592,6 +605,7 @@
       document.querySelectorAll("[data-grade]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.grade === "all")));
     }
     openComments.add(p.id);
+    revealId = p.id;
     render();
     fetchComments(p.id);
     const el = boardEl.querySelector('.post[data-id="' + p.id + '"]');
@@ -706,7 +720,31 @@
     clampCheck();
   });
 
+  const moreBtn = h("button", { class: "btn more-btn", type: "button", hidden: true, onclick: () => {
+    limit += PAGE;
+    render();
+  } });
+  boardEl.after(moreBtn);
+
+  // 처음에는 말풍선 전체를 받고, 그다음부터는 지난번 이후 바뀐 말풍선과 댓글·공감 수만 받습니다.
+  // (글이 수백 개여도 자동 새로고침 한 번에 오가는 데이터가 작게 유지됩니다)
   let loaded = false;
+  let since = null;       // 지난 응답의 서버 시각
+  let lastSig = "";       // 바뀐 것이 없으면 화면을 다시 그리지 않습니다
+  function merge(res) {
+    const fresh = new Map(res.posts.map((p) => [p.id, p]));
+    if (since == null) return res.posts;
+    const old = new Map(posts.map((p) => [p.id, p]));
+    const next = [];
+    for (const [id, comments, likes] of res.counts) {
+      const p = fresh.get(id) || old.get(id);
+      if (!p) return null;   // 놓친 말풍선이 있으면 전체를 다시 받습니다
+      p.comment_count = comments;
+      p.like_count = likes;
+      next.push(p);
+    }
+    return next.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+  }
   async function load(quiet) {
     if (!isConfigured()) {
       render();
@@ -714,10 +752,20 @@
       return;
     }
     try {
-      const [board, conf] = await Promise.all([rpc("get_board"), rpc("get_settings").catch(() => null)]);
-      posts = board;
-      settings = conf || {};
-      render();
+      let res = await rpc("get_board_changes", { p_since: since });
+      let next = merge(res);
+      if (!next) {
+        since = null;
+        res = await rpc("get_board_changes", { p_since: null });
+        next = merge(res);
+      }
+      const sig = JSON.stringify([res.counts, res.settings]);
+      const changed = since == null || res.posts.length || sig !== lastSig;
+      since = res.now;
+      lastSig = sig;
+      posts = next;
+      settings = res.settings || {};
+      if (changed || flashId != null) render();
       // 열어 둔 댓글 창은 댓글 수가 바뀌었을 때만 다시 불러옵니다.
       for (const id of openComments) {
         const p = posts.find((x) => x.id === id);
@@ -1037,6 +1085,6 @@
     if (!typing) load(true);
   }, REFRESH_MS);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") load(true);
+    if (document.visibilityState === "visible" && loaded) load(true);
   });
 })();

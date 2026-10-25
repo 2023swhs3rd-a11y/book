@@ -99,12 +99,31 @@ alter table public.admin_config add column if not exists notice text;
 alter table public.admin_config add column if not exists topic text;
 alter table public.entries add column if not exists topic text;
 alter table public.comments add column if not exists is_teacher boolean not null default false;
+-- [9차 업데이트] 700명 운영 대비: 바뀐 글만 받기, 단계적 잠금, 신고 자동 숨김, 관리자 작업 기록
+alter table public.posts add column if not exists changed_at timestamptz not null default now();
+alter table public.posts add column if not exists lock_level int not null default 0;
+alter table public.posts add column if not exists auto_hidden boolean not null default false;
+alter table public.comments add column if not exists lock_level int not null default 0;
+alter table public.comments add column if not exists hidden boolean not null default false;
+create index if not exists posts_changed_at_idx on public.posts(changed_at);
+create index if not exists posts_created_at_idx on public.posts(created_at);
+create index if not exists entries_created_at_idx on public.entries(created_at);
+create index if not exists comments_created_at_idx on public.comments(created_at);
+
+create table if not exists public.admin_log (
+  id          bigint generated always as identity primary key,
+  action      text not null,
+  detail      text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists admin_log_created_at_idx on public.admin_log(created_at);
 
 -- 모든 테이블은 직접 접근을 막고, 아래 함수(RPC)를 통해서만 읽고 씁니다.
 alter table public.posts        enable row level security;
 alter table public.entries      enable row level security;
 alter table public.admin_config enable row level security;
-revoke all on public.posts, public.entries, public.admin_config from anon, authenticated;
+alter table public.admin_log    enable row level security;
+revoke all on public.posts, public.entries, public.admin_config, public.admin_log from anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- 내부 도우미
@@ -133,7 +152,57 @@ returns boolean language sql immutable as $$
   select coalesce(p, '') ~ '^[A-Za-z0-9-]{16,64}$'
 $$;
 
--- 관리자 비밀번호 확인 (5회 틀리면 10분 잠금)
+-- 너무 쉬운 비밀번호(0000, 1234, 9876 처럼 같은 숫자나 연속 숫자)인지
+create or replace function public._weak_pin(p text)
+returns boolean language sql immutable as $$
+  select coalesce(p, '') ~ '^([0-9])\1{3}$'
+      or position(coalesce(p, '') in '0123456789') > 0
+      or position(coalesce(p, '') in '9876543210') > 0
+$$;
+
+-- 비밀번호를 5번 틀릴 때마다 잠그는 시간: 처음 10분, 다음 1시간, 그다음부터 하루
+create or replace function public._lock_span(p_level int)
+returns interval language sql immutable as $$
+  select case when p_level <= 0 then interval '10 minutes'
+              when p_level = 1 then interval '1 hour'
+              else interval '1 day' end
+$$;
+
+-- 관리자 작업 기록 (관리자 화면의 '작업 기록'에서 봅니다. 1년이 지난 기록은 지웁니다)
+create or replace function public._log(p_action text, p_detail text)
+returns void language sql security definer
+set search_path = public as $$
+  delete from public.admin_log where created_at < now() - interval '1 year';
+  insert into public.admin_log (action, detail) values (p_action, left(p_detail, 300));
+$$;
+
+-- 학생 화면이 바뀐 글만 다시 받을 수 있도록, 글이 바뀌면 changed_at 을 새로 적습니다.
+-- (비밀번호 실패 횟수처럼 화면에 보이지 않는 값만 바뀌면 그대로 둡니다)
+create or replace function public._post_changed()
+returns trigger language plpgsql as $$
+begin
+  if row(new.hidden, new.pinned, new.season, new.nickname, new.color, new.updated_at, new.student_no, new.author_name)
+     is distinct from row(old.hidden, old.pinned, old.season, old.nickname, old.color, old.updated_at, old.student_no, old.author_name) then
+    new.changed_at := now();
+  end if;
+  return new;
+end $$;
+drop trigger if exists posts_changed on public.posts;
+create trigger posts_changed before update on public.posts
+  for each row execute function public._post_changed();
+
+create or replace function public._entry_changed()
+returns trigger language plpgsql security definer
+set search_path = public as $$
+begin
+  update public.posts set changed_at = now() where id = coalesce(new.post_id, old.post_id);
+  return null;
+end $$;
+drop trigger if exists entries_changed on public.entries;
+create trigger entries_changed after insert or update or delete on public.entries
+  for each row execute function public._entry_changed();
+
+-- 관리자 비밀번호 확인 (5회 틀리면 1분 잠금)
 -- 맞으면 null, 아니면 오류 코드를 돌려줍니다. 실패 횟수가 롤백되지 않도록
 -- 예외를 던지지 않고, 각 관리자 함수가 {"error": 코드} 를 반환합니다.
 create or replace function public._admin_check(p_pw text)
@@ -150,10 +219,12 @@ begin
     update public.admin_config set fail_count = 0, locked_until = null where id = 1;
     return null;
   end if;
+  -- 잠금은 1분만: 비밀번호가 길면 1분에 5번으로는 맞힐 수 없고, 누가 일부러 틀려도 선생님이 오래 막히지 않습니다.
   update public.admin_config
      set fail_count = case when cfg.fail_count + 1 >= 5 then 0 else cfg.fail_count + 1 end,
-         locked_until = case when cfg.fail_count + 1 >= 5 then now() + interval '10 minutes' end
+         locked_until = case when cfg.fail_count + 1 >= 5 then now() + interval '1 minute' end
    where id = 1;
+  if cfg.fail_count + 1 >= 5 then perform _log('관리자 로그인 잠금', '비밀번호 5번 틀림 (1분 잠금)'); end if;
   return 'ADMIN_BAD_PASSWORD';
 end $$;
 
@@ -162,7 +233,8 @@ end $$;
 -- ---------------------------------------------------------------------
 
 -- 게시판 조회: 말풍선에 학번(교사는 부서)·이름·닉네임을 표시합니다. 비밀번호는 내보내지 않습니다.
-create or replace function public.get_board()
+-- p_since 가 있으면 그 뒤에 바뀐 말풍선만 돌려줍니다.
+create or replace function public._board_posts(p_since timestamptz)
 returns json language sql stable security definer
 set search_path = public as $$
   select coalesce(json_agg(b order by b.updated_at desc), '[]'::json)
@@ -170,7 +242,7 @@ set search_path = public as $$
     select p.id, p.role, p.student_no, p.author_name, p.nickname,
            coalesce(p.nickname, p.author_name) as display_name,
            p.color, p.pinned, p.created_at, p.updated_at,
-           (select count(*) from public.comments c where c.post_id = p.id) as comment_count,
+           (select count(*) from public.comments c where c.post_id = p.id and not c.hidden) as comment_count,
            (select count(*) from public.post_likes l where l.post_id = p.id) as like_count,
            (select json_agg(json_build_object(
                      'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
@@ -178,8 +250,29 @@ set search_path = public as $$
                    order by e.created_at, e.id)
               from public.entries e where e.post_id = p.id) as entries
       from public.posts p
-     where not p.hidden and p.season is null
+     where not p.hidden and p.season is null and (p_since is null or p.changed_at > p_since)
   ) b
+$$;
+
+create or replace function public.get_board()
+returns json language sql stable security definer
+set search_path = public as $$ select public._board_posts(null) $$;
+
+-- 자동 새로고침용: 바뀐 말풍선 전체 + 모든 말풍선의 [번호, 댓글 수, 공감 수] + 공지·주제.
+-- 화면은 counts 에 없는 말풍선을 지우고(삭제·숨김), posts 로 받은 말풍선만 새로 바꿉니다.
+-- p_since 는 지난번 응답의 now 를 그대로 보내면 됩니다. 늦게 끝난 저장을 놓치지 않도록 30초 겹쳐 봅니다.
+create or replace function public.get_board_changes(p_since timestamptz)
+returns json language sql stable security definer
+set search_path = public as $$
+  select json_build_object(
+    'now', now(),
+    'settings', (select json_build_object('notice', nullif(btrim(notice), ''), 'topic', nullif(btrim(topic), ''))
+                   from public.admin_config where id = 1),
+    'posts', public._board_posts(p_since - interval '30 seconds'),
+    'counts', (select coalesce(json_agg(json_build_array(p.id,
+                 (select count(*) from public.comments c where c.post_id = p.id and not c.hidden),
+                 (select count(*) from public.post_likes l where l.post_id = p.id))), '[]'::json)
+                 from public.posts p where not p.hidden and p.season is null))
 $$;
 
 -- [3차 업데이트] 금지어, 교사 인증 코드
@@ -211,7 +304,8 @@ set search_path = public as $$
   )
 $$;
 
--- 게시물 비밀번호 확인 (5회 틀리면 10분 잠금). 맞으면 null, 아니면 'LOCKED' | 'BAD_PIN'
+-- 게시물 비밀번호 확인. 5회 틀릴 때마다 잠그고, 잠길수록 길게(10분 → 1시간 → 하루) 잠급니다.
+-- 맞으면 null, 아니면 'LOCKED' | 'BAD_PIN'
 create or replace function public._pin_check(p public.posts, p_pin text)
 returns text language plpgsql security definer
 set search_path = public, extensions as $$
@@ -220,15 +314,18 @@ begin
   if p.pin_hash <> crypt(coalesce(p_pin, ''), p.pin_hash) then
     update public.posts
        set fail_count = case when p.fail_count + 1 >= 5 then 0 else p.fail_count + 1 end,
-           locked_until = case when p.fail_count + 1 >= 5 then now() + interval '10 minutes' end
+           locked_until = case when p.fail_count + 1 >= 5 then now() + _lock_span(p.lock_level) end,
+           lock_level = case when p.fail_count + 1 >= 5 then p.lock_level + 1 else p.lock_level end
      where id = p.id;
     return 'BAD_PIN';
   end if;
-  update public.posts set fail_count = 0, locked_until = null where id = p.id;
+  if p.fail_count <> 0 or p.lock_level <> 0 or p.locked_until is not null then
+    update public.posts set fail_count = 0, lock_level = 0, locked_until = null where id = p.id;
+  end if;
   return null;
 end $$;
 
--- 교사 인증 코드 확인 (10회 틀리면 10분 동안 교사 글쓰기 잠금)
+-- 교사 인증 코드 확인 (10회 틀리면 1분 동안 교사 글쓰기 잠금)
 create or replace function public._teacher_check(p_code text)
 returns text language plpgsql security definer
 set search_path = public, extensions as $$
@@ -245,8 +342,9 @@ begin
   end if;
   update public.admin_config
      set teacher_fail_count = case when cfg.teacher_fail_count + 1 >= 10 then 0 else cfg.teacher_fail_count + 1 end,
-         teacher_locked_until = case when cfg.teacher_fail_count + 1 >= 10 then now() + interval '10 minutes' end
+         teacher_locked_until = case when cfg.teacher_fail_count + 1 >= 10 then now() + interval '1 minute' end
    where id = 1;
+  if cfg.teacher_fail_count + 1 >= 10 then perform _log('교사 코드 잠금', '교사 인증 코드 10번 틀림 (1분 잠금)'); end if;
   return 'TEACHER_CODE';
 end $$;
 
@@ -275,6 +373,7 @@ declare
   err text;
 begin
   if coalesce(p_pin, '') !~ '^[0-9]{4}$' then return json_build_object('error', 'PIN_FORMAT'); end if;
+  if _weak_pin(p_pin) then return json_build_object('error', 'PIN_WEAK'); end if;
   if _clean(p_student_no, 20) is null or _clean(p_name, 20) is null
      or _clean(p_quote, 500) is null or _clean(p_book_title, 100) is null
      or _clean(p_book_author, 50) is null then
@@ -291,6 +390,10 @@ begin
                 and author_name = _clean(p_name, 20)
                 and created_at > now() - interval '1 minute') then
     return json_build_object('error', 'TOO_FAST');
+  end if;
+  -- 도배 방지: 게시판 전체로 1분에 새 글 60개까지 (가짜 학번을 바꿔 가며 올려도 여기서 멈춥니다)
+  if (select count(*) from public.posts where created_at > now() - interval '1 minute') >= 60 then
+    return json_build_object('error', 'BUSY');
   end if;
   if _has_banned(p_name, p_nickname, p_quote, p_book_title, p_book_author) then
     return json_build_object('error', 'BANNED_WORD');
@@ -334,6 +437,9 @@ begin
   end if;
   if exists (select 1 from public.entries where post_id = p.id and created_at > now() - interval '1 minute') then
     return 'TOO_FAST';
+  end if;
+  if (select count(*) from public.entries where created_at > now() - interval '1 minute') >= 120 then
+    return 'BUSY';
   end if;
   if _has_banned(p_quote, p_book_title, p_book_author) then return 'BANNED_WORD'; end if;
 
@@ -412,7 +518,7 @@ set search_path = public as $$
            'body', c.body, 'is_teacher', c.is_teacher, 'created_at', c.created_at) order by c.created_at, c.id), '[]'::json)
     from public.comments c
     join public.posts p on p.id = c.post_id and not p.hidden and p.season is null
-   where c.post_id = p_post_id
+   where c.post_id = p_post_id and not c.hidden
 $$;
 
 -- 댓글 쓰기: {"ok": true} 또는 {"error": 코드}
@@ -426,6 +532,7 @@ set search_path = public, extensions as $$
 declare err text;
 begin
   if coalesce(p_pin, '') !~ '^[0-9]{4}$' then return json_build_object('error', 'PIN_FORMAT'); end if;
+  if _weak_pin(p_pin) then return json_build_object('error', 'PIN_WEAK'); end if;
   if _clean(p_student_no, 20) is null or _clean(p_name, 20) is null or _clean(p_body, 200) is null then
     return json_build_object('error', 'MISSING_FIELD');
   end if;
@@ -442,6 +549,9 @@ begin
                 and created_at > now() - interval '20 seconds') then
     return json_build_object('error', 'TOO_FAST_COMMENT');
   end if;
+  if (select count(*) from public.comments where created_at > now() - interval '1 minute') >= 120 then
+    return json_build_object('error', 'BUSY');
+  end if;
   if _has_banned(p_name, p_body) then return json_build_object('error', 'BANNED_WORD'); end if;
   if nullif(btrim(coalesce(p_teacher_code, '')), '') is not null then
     err := _teacher_check(p_teacher_code);
@@ -454,7 +564,7 @@ begin
   return json_build_object('ok', true);
 end $$;
 
--- 내 댓글 지우기 (5회 틀리면 10분 잠금). 반환값: 'OK' | 'BAD_PIN' | 'LOCKED'
+-- 내 댓글 지우기 (게시물 비밀번호와 같이 단계적으로 잠금). 반환값: 'OK' | 'BAD_PIN' | 'LOCKED'
 create or replace function public.delete_comment(p_comment_id bigint, p_pin text)
 returns text language plpgsql security definer
 set search_path = public, extensions as $$
@@ -466,7 +576,8 @@ begin
   if c.pin_hash <> crypt(coalesce(p_pin, ''), c.pin_hash) then
     update public.comments
        set fail_count = case when c.fail_count + 1 >= 5 then 0 else c.fail_count + 1 end,
-           locked_until = case when c.fail_count + 1 >= 5 then now() + interval '10 minutes' end
+           locked_until = case when c.fail_count + 1 >= 5 then now() + _lock_span(c.lock_level) end,
+           lock_level = case when c.fail_count + 1 >= 5 then c.lock_level + 1 else c.lock_level end
      where id = c.id;
     return 'BAD_PIN';
   end if;
@@ -494,9 +605,12 @@ begin
 end $$;
 
 -- 신고 (기기마다 대상 하나에 한 번, 한 시간에 20번까지). {"ok": true} 또는 {"error": 코드}
+-- 서로 다른 기기에서 신고가 3건 모이면 바로 숨기고 관리자 화면의 '검토 대기'에 올립니다(교사 글·댓글은 제외).
 create or replace function public.report(p_post_id bigint, p_comment_id bigint, p_reason text, p_device text)
 returns json language plpgsql security definer
 set search_path = public as $$
+declare
+  auto_hide constant int := 3;
 begin
   if not _check_device(p_device) then return json_build_object('error', 'MISSING_FIELD'); end if;
   if not exists (select 1 from public.posts where id = p_post_id and not hidden and season is null)
@@ -511,6 +625,16 @@ begin
   insert into public.reports (post_id, comment_id, device, reason)
   values (p_post_id, p_comment_id, p_device, _clean(p_reason, 100))
   on conflict do nothing;
+  if p_comment_id is null then
+    if (select count(*) from public.reports where post_id = p_post_id and comment_id is null) >= auto_hide then
+      update public.posts set hidden = true, auto_hidden = true
+       where id = p_post_id and not hidden and role <> 'teacher';
+      if found then perform _log('자동 숨김', '게시물 #' || p_post_id || ' (신고 ' || auto_hide || '건)'); end if;
+    end if;
+  elsif (select count(*) from public.reports where comment_id = p_comment_id) >= auto_hide then
+    update public.comments set hidden = true where id = p_comment_id and not hidden and not is_teacher;
+    if found then perform _log('자동 숨김', '댓글 #' || p_comment_id || ' (게시물 #' || p_post_id || ', 신고 ' || auto_hide || '건)'); end if;
+  end if;
   return json_build_object('ok', true);
 end $$;
 
@@ -522,6 +646,7 @@ declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
   delete from public.reports where post_id = p_post_id;
+  perform _log('신고 확인', '게시물 #' || p_post_id);
   return json_build_object('ok', true);
 end $$;
 
@@ -532,7 +657,22 @@ set search_path = public as $$
 declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
+  perform _log('댓글 삭제', (select '댓글 #' || id || ' ' || student_no || ' ' || author_name || ': ' || left(body, 40)
+                              from public.comments where id = p_comment_id));
   delete from public.comments where id = p_comment_id;
+  return json_build_object('ok', true);
+end $$;
+
+-- 관리자: 댓글 숨기기/보이기. 다시 보이게 하면 그 댓글의 신고도 정리합니다(바로 다시 자동 숨김되지 않도록).
+create or replace function public.admin_set_comment_hidden(p_pw text, p_comment_id bigint, p_hidden boolean)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  update public.comments set hidden = p_hidden where id = p_comment_id;
+  if not p_hidden then delete from public.reports where comment_id = p_comment_id; end if;
+  perform _log(case when p_hidden then '댓글 숨김' else '댓글 숨김 해제' end, '댓글 #' || p_comment_id);
   return json_build_object('ok', true);
 end $$;
 
@@ -552,7 +692,7 @@ begin
     select coalesce(json_agg(b order by b.updated_at desc), '[]'::json)
     from (
       select p.id, p.role, p.student_no, p.author_name, p.nickname, p.color, p.hidden,
-             p.pinned, p.season, p.created_at, p.updated_at,
+             p.pinned, p.season, p.auto_hidden, p.created_at, p.updated_at,
              (select count(*) from public.post_likes l where l.post_id = p.id) as like_count,
              (select json_agg(json_build_object(
                        'id', e.id, 'quote', e.quote, 'book_title', e.book_title,
@@ -561,7 +701,7 @@ begin
                 from public.entries e where e.post_id = p.id) as entries,
              (select json_agg(json_build_object(
                        'id', c.id, 'student_no', c.student_no, 'author_name', c.author_name,
-                       'body', c.body, 'is_teacher', c.is_teacher, 'created_at', c.created_at,
+                       'body', c.body, 'is_teacher', c.is_teacher, 'hidden', c.hidden, 'created_at', c.created_at,
                        'report_count', (select count(*) from public.reports r where r.comment_id = c.id))
                      order by c.created_at, c.id)
                 from public.comments c where c.post_id = p.id) as comments,
@@ -579,6 +719,8 @@ set search_path = public as $$
 declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
+  perform _log('게시물 삭제', (select '게시물 #' || id || ' ' || student_no || ' ' || author_name
+                               from public.posts where id = p_post_id));
   delete from public.posts where id = p_post_id;
   return json_build_object('ok', true);
 end $$;
@@ -598,6 +740,7 @@ begin
     return json_build_object('error', 'LAST_ENTRY');
   end if;
   delete from public.entries where id = p_entry_id;
+  perform _log('이어쓰기 삭제', '게시물 #' || pid || '의 글 #' || p_entry_id);
   return json_build_object('ok', true);
 end $$;
 
@@ -607,7 +750,10 @@ set search_path = public as $$
 declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
-  update public.posts set hidden = p_hidden where id = p_post_id;
+  update public.posts set hidden = p_hidden, auto_hidden = false where id = p_post_id;
+  -- 다시 보이게 하면 말풍선 신고를 정리합니다(바로 다시 자동 숨김되지 않도록).
+  if not p_hidden then delete from public.reports where post_id = p_post_id and comment_id is null; end if;
+  perform _log(case when p_hidden then '숨김' else '숨김 해제' end, '게시물 #' || p_post_id);
   return json_build_object('ok', true);
 end $$;
 
@@ -619,13 +765,14 @@ declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
   update public.admin_config set last_backup_at = now() where id = 1;
+  perform _log('엑셀 백업', null);
   return json_build_object('ok', true);
 end $$;
 
 -- DB 구조의 버전. schema.sql 을 바꿀 때마다 1씩 올리고 js/common.js 의 SCHEMA_VERSION 도 같이 올립니다.
 -- 화면은 이 값이 더 작으면 "schema.sql 을 다시 실행해 주세요" 라고 알려 줍니다.
 create or replace function public.schema_version()
-returns int language sql immutable as $$ select 8 $$;
+returns int language sql immutable as $$ select 9 $$;
 
 -- 게시판 맨 위 공지와 이달의 주제 (학생 화면에서 읽음)
 create or replace function public.get_settings()
@@ -642,6 +789,7 @@ declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
   update public.admin_config set notice = _clean(p_notice, 200), topic = _clean(p_topic, 30) where id = 1;
+  perform _log('공지·주제 저장', concat_ws(' / ', _clean(p_notice, 200), _clean(p_topic, 30)));
   return json_build_object('ok', true);
 end $$;
 
@@ -653,6 +801,7 @@ declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
   update public.posts set pinned = p_pinned where id = p_post_id;
+  perform _log(case when p_pinned then '추천 고정' else '추천 해제' end, '게시물 #' || p_post_id);
   return json_build_object('ok', true);
 end $$;
 
@@ -670,6 +819,7 @@ begin
   end if;
   update public.posts set season = _clean(p_name, 30), pinned = false where season is null;
   get diagnostics n = row_count;
+  perform _log('학기 보관', _clean(p_name, 30) || ' (게시물 ' || n || '개)');
   return json_build_object('ok', true, 'count', n);
 end $$;
 
@@ -683,6 +833,7 @@ begin
   if err is not null then return json_build_object('error', err); end if;
   update public.posts set season = null where season = p_name;
   get diagnostics n = row_count;
+  perform _log('보관 되돌리기', p_name || ' (게시물 ' || n || '개)');
   return json_build_object('ok', true, 'count', n);
 end $$;
 
@@ -696,9 +847,11 @@ begin
   if coalesce(p_new_pin, '') !~ '^[0-9]{4}$' then
     return json_build_object('error', 'PIN_FORMAT');
   end if;
+  if _weak_pin(p_new_pin) then return json_build_object('error', 'PIN_WEAK'); end if;
   update public.posts
-     set pin_hash = crypt(p_new_pin, gen_salt('bf')), fail_count = 0, locked_until = null
+     set pin_hash = crypt(p_new_pin, gen_salt('bf')), fail_count = 0, lock_level = 0, locked_until = null
    where id = p_post_id;
+  perform _log('비밀번호 초기화', '게시물 #' || p_post_id);
   return json_build_object('ok', true);
 end $$;
 
@@ -708,10 +861,11 @@ set search_path = public, extensions as $$
 declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
-  if char_length(coalesce(p_new_pw, '')) < 6 then
+  if char_length(coalesce(p_new_pw, '')) < 10 then
     return json_build_object('error', 'ADMIN_PW_TOO_SHORT');
   end if;
   update public.admin_config set pw_hash = crypt(p_new_pw, gen_salt('bf')) where id = 1;
+  perform _log('관리자 비밀번호 변경', null);
   return json_build_object('ok', true);
 end $$;
 
@@ -722,12 +876,13 @@ set search_path = public, extensions as $$
 declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
-  if char_length(coalesce(p_code, '')) < 4 then
+  if char_length(coalesce(p_code, '')) < 8 then
     return json_build_object('error', 'TEACHER_CODE_TOO_SHORT');
   end if;
   update public.admin_config
      set teacher_code_hash = crypt(p_code, gen_salt('bf')), teacher_fail_count = 0, teacher_locked_until = null
    where id = 1;
+  perform _log('교사 인증 코드 변경', null);
   return json_build_object('ok', true);
 end $$;
 
@@ -753,7 +908,39 @@ begin
   insert into public.banned_words (word)
   select distinct left(btrim(w), 30) from unnest(coalesce(p_words, '{}')) w where btrim(w) <> ''
   on conflict do nothing;
+  perform _log('금지어 저장', (select count(*) || '개' from public.banned_words));
   return json_build_object('ok', true);
+end $$;
+
+-- 도배 정리: 최근 몇 분 동안 올라온 학생 게시물을 한꺼번에 숨깁니다(교사 글·추천 글 제외).
+-- 숨긴 글은 '검토 대기'에 올라가므로 하나씩 다시 보이게 할 수 있습니다.
+create or replace function public.admin_hide_recent(p_pw text, p_minutes int)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+        n int;
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  if p_minutes is null or p_minutes < 1 or p_minutes > 1440 then return json_build_object('error', 'MISSING_FIELD'); end if;
+  update public.posts set hidden = true, auto_hidden = true
+   where season is null and not hidden and not pinned and role <> 'teacher'
+     and created_at > now() - make_interval(mins => p_minutes);
+  get diagnostics n = row_count;
+  perform _log('도배 정리', '최근 ' || p_minutes || '분 게시물 ' || n || '개 숨김');
+  return json_build_object('ok', true, 'count', n);
+end $$;
+
+-- 관리자 작업 기록 (최근 300개)
+create or replace function public.admin_get_log(p_pw text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  return json_build_object('ok', true, 'log', (
+    select coalesce(json_agg(json_build_object('action', action, 'detail', detail, 'created_at', created_at)
+                             order by created_at desc, id desc), '[]'::json)
+      from (select * from public.admin_log order by created_at desc, id desc limit 300) l));
 end $$;
 
 -- ---------------------------------------------------------------------
@@ -764,6 +951,7 @@ grant execute on function
   public.schema_version(),
   public.get_settings(),
   public.get_board(),
+  public.get_board_changes(timestamptz),
   public.create_post(text, text, text, text, text, text, text, text, text, text, text, boolean),
   public.add_entry(bigint, text, text, text, text, text, boolean),
   public.edit_entry(bigint, bigint, text, text, text, text, text),
@@ -788,12 +976,15 @@ grant execute on function
   public.admin_reset_pin(text, bigint, text),
   public.admin_change_password(text, text),
   public.admin_mark_backup(text),
-  public.admin_set_board(text, text, text)
+  public.admin_set_board(text, text, text),
+  public.admin_set_comment_hidden(text, bigint, boolean),
+  public.admin_hide_recent(text, int),
+  public.admin_get_log(text)
 to anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- 관리자 비밀번호 (처음 한 번만 설정됩니다)
--- ↓ '여기에-관리자-비밀번호' 를 원하는 비밀번호(6자 이상)로 바꾼 뒤 실행하세요.
+-- ↓ '여기에-관리자-비밀번호' 를 원하는 비밀번호(10자 이상)로 바꾼 뒤 실행하세요.
 --   이후 변경은 관리자 화면의 [비밀번호 변경] 에서 할 수 있습니다.
 -- ---------------------------------------------------------------------
 insert into public.admin_config (id, pw_hash)

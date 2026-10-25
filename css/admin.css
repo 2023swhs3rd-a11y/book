@@ -201,3 +201,10 @@ tr.detail .entry-list li { --bd: var(--line); }
   .admin-table td.actions .btn { flex: 1 1 40%; padding: 9px; font-size: 14px; }
   tr.detail td { border-radius: 0 0 14px 14px; display: block; }
 }
+
+/* 도배 정리 · 작업 기록 */
+#hideRecentForm { align-items: center; flex-wrap: wrap; gap: 8px; }
+#hideRecentForm input[type="number"] { width: 80px; }
+.log-title { margin: 18px 0 8px; font-size: 1rem; }
+.log-title small { color: var(--muted, #888); font-weight: 400; }
+.entry-list p.dim { opacity: .5; text-decoration: line-through; }

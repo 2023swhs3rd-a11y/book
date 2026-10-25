@@ -665,3 +665,7 @@ dialog.sheet.ask { width: min(420px, calc(100vw - 32px)); }
   .help-toc { margin: 0 -16px 4px; padding: 8px 16px; }
   .help-btn { padding-left: 12px; padding-right: 12px; }
 }
+
+/* 말풍선 더 보기 */
+.more-btn { display: block; margin: 8px auto 32px; min-width: 220px; }
+.more-btn[hidden] { display: none; }
