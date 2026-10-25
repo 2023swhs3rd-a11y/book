@@ -9,8 +9,8 @@
   <link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261022o">
-  <link rel="stylesheet" href="css/admin.css?v=20261022o">
+  <link rel="stylesheet" href="css/style.css?v=20261025a">
+  <link rel="stylesheet" href="css/admin.css?v=20261025a">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -51,9 +51,10 @@
         <div class="settings-body">
           <form id="teacherCodeForm" class="setting">
             <h3>교사 인증 코드 <span id="teacherCodeState" class="pill"></span></h3>
-            <p class="hint">교사로 글을 쓸 때 입력하는 코드예요. 선생님들께만 알려 주세요. 보안을 위해 저장된 코드는 다시 보여 주지 않아요.</p>
+            <p class="hint">교사로 글을 쓸 때 입력하는 코드예요. 선생님들께만 알려 주세요. 보안을 위해 저장된 코드는 다시 보여 주지 않아요.
+              학기마다, 그리고 학생에게 알려진 것 같으면 바로 바꿔 주세요.</p>
             <div class="inline">
-              <input name="code" type="text" minlength="4" maxlength="40" placeholder="새 교사 인증 코드" autocomplete="off">
+              <input name="code" type="text" minlength="8" maxlength="40" placeholder="새 교사 인증 코드 (8자 이상)" autocomplete="off">
               <button class="btn small primary" type="submit">저장</button>
             </div>
           </form>
@@ -106,6 +107,25 @@
         </div>
       </details>
 
+      <details class="settings" id="opsBox">
+        <summary>🧹 도배 정리 · 📝 관리자 작업 기록</summary>
+        <div class="class-body">
+          <form id="hideRecentForm" class="inline">
+            <span>최근</span>
+            <input name="minutes" type="number" min="1" max="1440" value="10" aria-label="분">
+            <span>분 동안 올라온 학생 게시물을</span>
+            <button class="btn small danger" type="submit">모두 숨기기</button>
+          </form>
+          <p class="hint">가짜 학번으로 글이 도배됐을 때 써요. 교사 글과 선생님 추천 글은 빼고 숨기며,
+            숨긴 글은 아래 표의 상태 → <b>🙈 검토 대기</b>에서 하나씩 다시 보이게 할 수 있어요.</p>
+          <h3 class="log-title">작업 기록 <small>(최근 300개)</small></h3>
+          <div class="table-wrap"><table class="admin-table log-table">
+            <thead><tr><th>시각</th><th>작업</th><th>내용</th></tr></thead>
+            <tbody id="logRows"></tbody>
+          </table></div>
+        </div>
+      </details>
+
       <form class="filters" id="filters" onsubmit="return false">
         <label>학기
           <select name="season"><option value="">이번 학기</option><option value="*">전체 (보관 포함)</option></select>
@@ -127,6 +147,7 @@
             <option value="all">전체</option>
             <option value="shown">게시 중</option>
             <option value="hidden">숨김</option>
+            <option value="review">🙈 검토 대기</option>
             <option value="reported">🚩 신고됨</option>
           </select>
         </label>
@@ -189,8 +210,8 @@
   <!-- 인쇄용 학생별 독서 기록 카드 -->
   <section id="cards" class="cards" aria-hidden="true"></section>
 
-  <script src="js/config.js?v=20261022o"></script>
-  <script src="js/common.js?v=20261022o"></script>
-  <script src="js/admin.js?v=20261022o"></script>
+  <script src="js/config.js?v=20261025a"></script>
+  <script src="js/common.js?v=20261025a"></script>
+  <script src="js/admin.js?v=20261025a"></script>
 </body>
 </html>

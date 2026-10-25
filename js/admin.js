@@ -13,6 +13,8 @@
   const colorLabel = Object.fromEntries(COLORS.map((c) => [c.key, c.label]));
   filters.elements.cat.append(...CATEGORIES.map((c) => h("option", { value: c }, c)));
   const reportCount = (p) => (p.reports || []).length;
+  // 검토 대기: 신고 3건으로 자동 숨김됐거나 도배 정리로 숨긴 글, 자동 숨김된 댓글
+  const reviewCount = (p) => (p.auto_hidden ? 1 : 0) + (p.comments || []).filter((c) => c.hidden).length;
 
   let pw = null;
   let allPosts = [];   // 보관한 학기까지 모든 글
@@ -57,7 +59,7 @@
   });
 
   $("#pwBtn").addEventListener("click", async () => {
-    const next = await ask({ title: "관리자 비밀번호 변경", message: "새 비밀번호를 입력해 주세요. (6자 이상)",
+    const next = await ask({ title: "관리자 비밀번호 변경", message: "새 비밀번호를 입력해 주세요. (10자 이상, 선생님 한두 분만 알도록)",
       input: { type: "password", autocomplete: "new-password" }, okText: "다음" });
     if (next == null) return;
     const again = await ask({ title: "관리자 비밀번호 변경", message: "확인을 위해 한 번 더 입력해 주세요.",
@@ -104,6 +106,19 @@
       out.push(h("div", { class: "alert danger" },
         h("span", null, "⚠️ ", h("b", null, "DB 업데이트가 필요해요."), " 저장소의 supabase/schema.sql 전체를 Supabase SQL Editor 에 붙여 넣고 Run 해 주세요. 그 전에는 새 기능에서 오류가 나요."),
         h("a", { class: "btn small", href: "https://github.com/2023swhs3rd-a11y/book/blob/main/supabase/schema.sql", target: "_blank", rel: "noopener" }, "schema.sql 열기")));
+    }
+    const review = allPosts.filter((p) => reviewCount(p));
+    if (review.length) {
+      out.push(h("div", { class: "alert report" },
+        h("span", null, "🙈 자동으로 숨긴 글·댓글 ", h("b", null, review.reduce((n, p) => n + reviewCount(p), 0) + "개"), "가 검토를 기다려요. 괜찮은 글이면 다시 보이게, 아니면 삭제해 주세요."),
+        h("button", { class: "btn small", type: "button", onclick: () => {
+          const f = filters.elements;
+          filters.reset();
+          f.season.value = "*";
+          f.state.value = "review";
+          render();
+          $(".export-bar").scrollIntoView({ behavior: "smooth", block: "start" });
+        } }, "검토하기")));
     }
     const reported = allPosts.filter((p) => reportCount(p));
     const n = reported.reduce((sum, p) => sum + reportCount(p), 0);
@@ -171,6 +186,7 @@
       if (state === "shown" && p.hidden) continue;
       if (state === "hidden" && !p.hidden) continue;
       if (state === "reported" && !reportCount(p)) continue;
+      if (state === "review" && !reviewCount(p)) continue;
       if (role !== "all" && (p.role || "student") !== role) continue;
       if (sno && !(p.student_no || "").startsWith(sno)) continue;
       const entries = (p.entries || []).filter((e) => inRange(e, from, to) && (!cat || e.category === cat));
@@ -309,7 +325,8 @@
       h("td", { "data-label": "댓글" }, (p.comments || []).length),
       h("td", { "data-label": "처음 작성" }, fmtDate(p.created_at, true)),
       h("td", { "data-label": "최근 활동" }, fmtDate(p.updated_at, true)),
-      h("td", { "data-label": "상태" }, p.hidden ? h("span", { class: "pill off" }, "숨김") : h("span", { class: "pill on" }, "게시 중"),
+      h("td", { "data-label": "상태" }, p.hidden ? h("span", { class: "pill off" }, p.auto_hidden ? "🙈 자동 숨김" : "숨김") : h("span", { class: "pill on" }, "게시 중"),
+        (p.comments || []).some((c) => c.hidden) ? h("span", { class: "pill off" }, "숨긴 댓글 " + p.comments.filter((c) => c.hidden).length) : null,
         reportCount(p) ? h("span", { class: "pill report" }, "🚩 " + reportCount(p)) : null,
         p.pinned ? h("span", { class: "pill pin" }, "📌 추천") : null,
         p.season ? h("span", { class: "pill season" }, p.season) : null),
@@ -366,10 +383,14 @@
                   c.is_teacher ? h("span", { class: "pill teacher" }, "교사") : null, " ",
                   h("b", null, c.student_no + " " + c.author_name), " · " + fmtDate(c.created_at, true),
                   c.report_count ? h("span", { class: "pill report" }, "🚩 " + c.report_count) : null,
+                  c.hidden ? h("span", { class: "pill off" }, "숨김") : null,
+                  h("button", { class: "btn small", type: "button",
+                    onclick: () => act("admin_set_comment_hidden", { p_comment_id: c.id, p_hidden: !c.hidden }, c.hidden ? "댓글을 다시 보이게 했어요." : "댓글을 숨겼어요.") },
+                    c.hidden ? "보이기" : "숨기기"),
                   h("button", { class: "btn small danger", type: "button", onclick: async () => {
                     if (await ask({ title: "댓글 삭제", message: c.author_name + " 님의 댓글을 삭제할까요?", okText: "삭제", danger: true })) act("admin_delete_comment", { p_comment_id: c.id }, "댓글을 삭제했어요.");
                   } }, "댓글 삭제")),
-                h("p", null, c.body)))))
+                h("p", { class: c.hidden ? "dim" : null }, c.body)))))
         : null));
     return [tr, detail];
   }
@@ -687,6 +708,37 @@
       await rpc("admin_set_words", { p_pw: pw, p_words: words });
       toast("금지어 " + words.length + "개를 저장했어요.");
       loadSettings();
+    } catch (ex) { toast(ex.message, true); }
+  });
+
+  // ---------- 도배 정리 · 작업 기록 ----------
+  const opsBox = $("#opsBox");
+  async function loadLog() {
+    try {
+      const res = await rpc("admin_get_log", { p_pw: pw });
+      $("#logRows").replaceChildren(...(res.log.length
+        ? res.log.map((l) => h("tr", null,
+            h("td", { "data-label": "시각" }, fmtDate(l.created_at, true)),
+            h("td", { "data-label": "작업" }, h("b", null, l.action)),
+            h("td", { "data-label": "내용" }, l.detail || "")))
+        : [h("tr", null, h("td", { colspan: 3, class: "empty" }, "아직 기록이 없어요."))]));
+    } catch (e) { toast(e.message, true); }
+  }
+  opsBox.addEventListener("toggle", () => { if (opsBox.open) loadLog(); });
+
+  $("#hideRecentForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const minutes = Number(e.target.minutes.value);
+    if (!(minutes >= 1 && minutes <= 1440)) return toast("1분에서 1440분(하루) 사이로 정해 주세요.", true);
+    const n = allPosts.filter((p) => !p.season && !p.hidden && !p.pinned && p.role !== "teacher"
+      && Date.now() - new Date(p.created_at).getTime() < minutes * 60000).length;
+    if (!(await ask({ title: "🧹 도배 정리", danger: true, okText: "숨기기",
+      message: "최근 " + minutes + "분 동안 올라온 학생 게시물 약 " + n + "개를 숨길까요? 숨긴 글은 '검토 대기'에서 다시 보이게 할 수 있어요." }))) return;
+    try {
+      const res = await rpc("admin_hide_recent", { p_pw: pw, p_minutes: minutes });
+      toast("게시물 " + res.count + "개를 숨겼어요.");
+      await reload();
+      loadLog();
     } catch (ex) { toast(ex.message, true); }
   });
 
