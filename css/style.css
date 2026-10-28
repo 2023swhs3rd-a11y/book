@@ -328,6 +328,8 @@ legend { font-weight: 800; font-size: 14px; color: var(--accent); margin-bottom:
 .swatch input { position: absolute; opacity: 0; pointer-events: none; }
 .swatch:has(input:checked) { outline: 3px solid var(--ink); outline-offset: 2px; }
 .swatch:has(input:checked)::after { content: "✓"; font-weight: 900; color: var(--tone); }
+.swatch.random { background: conic-gradient(#fff3b0, #ffd6e0, #cfe8ff, #c9f2dd, #e3d7ff, #fff3b0); border-color: #d8cdbd; font-size: 20px; }
+.swatch.random:has(input:checked) > span[aria-hidden] { display: none; }
 .swatch:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
 
 /* 긴 글 접기 */

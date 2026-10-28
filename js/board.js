@@ -838,12 +838,20 @@
   }
 
   // ---------- 새 글 ----------
+  // 색을 고르지 않으면(🎲) 게시할 때 무작위로 정합니다. 고른 색은 작성창 머리에 미리 보여 줍니다.
   const swatches = $("#swatches");
-  COLORS.forEach((c, i) => {
+  swatches.append(h("label", { class: "swatch random", title: "무작위" },
+    h("input", { type: "radio", name: "color", value: "", checked: true }),
+    h("span", { "aria-hidden": "true" }, "🎲"), h("span", { class: "sr-only" }, "무작위")));
+  COLORS.forEach((c) => {
     swatches.append(h("label", { class: "swatch c-" + c.key, title: c.label },
-      h("input", { type: "radio", name: "color", value: c.key, checked: i === 0 }),
+      h("input", { type: "radio", name: "color", value: c.key }),
       h("span", { class: "sr-only" }, c.label)));
   });
+  function tintPost() {
+    postDialog.className = "sheet" + (postForm.color.value ? " c-" + postForm.color.value : "");
+  }
+  swatches.addEventListener("change", tintPost);
 
   // 학생 / 교사 선택: 교사는 학번 대신 부서를 입력하고, 전용 말풍선으로 보입니다.
   function applyRole() {
@@ -899,7 +907,7 @@
           p_name: f.author_name.value.trim(),
           p_nickname: null,
           p_pin: f.pin.value,
-          p_color: f.color.value,
+          p_color: f.color.value || COLORS[Math.floor(Math.random() * COLORS.length)].key,
           p_quote: f.quote.value.trim(),
           p_book_title: f.book_title.value.trim(),
           p_book_author: f.book_author.value.trim(),
@@ -911,6 +919,7 @@
         postDialog.close();
         f.reset();
         applyRole();
+        tintPost();
         toast("게시했어요! 🎉");
         flashId = created && created.id;
         if (flashId != null) markMine(flashId, 0);
