@@ -118,12 +118,31 @@ create table if not exists public.admin_log (
 );
 create index if not exists admin_log_created_at_idx on public.admin_log(created_at);
 
+-- [10차 업데이트] 추천도서 목록 (관리자가 등록, 학생 화면 '추천도서' 탭에서 봄)
+-- level: 난이도 1 입문 · 2 보통 · 3 도전 / grade_from: 대상 학년(예: '고1부터')
+create table if not exists public.recommended_books (
+  id          bigint generated always as identity primary key,
+  title       text not null check (char_length(title) between 1 and 100),
+  author      text not null check (char_length(author) between 1 and 100),
+  publisher   text check (publisher is null or char_length(publisher) <= 50),
+  pub_year    int check (pub_year is null or pub_year between 1000 and 2100),
+  isbn        text check (isbn is null or isbn ~ '^[0-9X]{10,13}$'),
+  thumbnail   text check (thumbnail is null or (thumbnail ~ '^https://' and char_length(thumbnail) <= 500)),
+  category    text,
+  level       smallint not null default 2 check (level between 1 and 3),
+  grade_from  text check (grade_from is null or char_length(grade_from) <= 20),
+  note        text check (note is null or char_length(note) <= 200),
+  source      text check (source is null or char_length(source) <= 50),
+  created_at  timestamptz not null default now()
+);
+
 -- 모든 테이블은 직접 접근을 막고, 아래 함수(RPC)를 통해서만 읽고 씁니다.
 alter table public.posts        enable row level security;
 alter table public.entries      enable row level security;
 alter table public.admin_config enable row level security;
 alter table public.admin_log    enable row level security;
-revoke all on public.posts, public.entries, public.admin_config, public.admin_log from anon, authenticated;
+alter table public.recommended_books enable row level security;
+revoke all on public.posts, public.entries, public.admin_config, public.admin_log, public.recommended_books from anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- 내부 도우미
@@ -772,7 +791,7 @@ end $$;
 -- DB 구조의 버전. schema.sql 을 바꿀 때마다 1씩 올리고 js/common.js 의 SCHEMA_VERSION 도 같이 올립니다.
 -- 화면은 이 값이 더 작으면 "schema.sql 을 다시 실행해 주세요" 라고 알려 줍니다.
 create or replace function public.schema_version()
-returns int language sql immutable as $$ select 9 $$;
+returns int language sql immutable as $$ select 10 $$;
 
 -- 게시판 맨 위 공지와 이달의 주제 (학생 화면에서 읽음)
 create or replace function public.get_settings()
@@ -930,6 +949,107 @@ begin
   return json_build_object('ok', true, 'count', n);
 end $$;
 
+-- ---------------------------------------------------------------------
+-- 추천도서
+-- ---------------------------------------------------------------------
+create or replace function public.get_recommended()
+returns json language sql stable security definer
+set search_path = public as $$
+  select coalesce(json_agg(json_build_object(
+           'id', id, 'title', title, 'author', author, 'publisher', publisher, 'pub_year', pub_year,
+           'isbn', isbn, 'thumbnail', thumbnail, 'category', category, 'level', level,
+           'grade_from', grade_from, 'note', note, 'source', source, 'created_at', created_at)
+         order by created_at desc, id desc), '[]'::json)
+    from public.recommended_books
+$$;
+
+-- 한 권 저장: p_book 에 id 가 있으면 고치고, 없으면 새로 넣습니다. {"ok": true, "id": 번호}
+create or replace function public._rec_row(b jsonb)
+returns public.recommended_books language plpgsql immutable as $$
+declare r public.recommended_books;
+begin
+  r.title := _clean(b->>'title', 100);
+  r.author := _clean(b->>'author', 100);
+  r.publisher := _clean(b->>'publisher', 50);
+  r.pub_year := case when coalesce(b->>'pub_year', '') ~ '^[0-9]{4}$' then (b->>'pub_year')::int end;
+  r.isbn := case when coalesce(b->>'isbn', '') ~ '^[0-9X]{10,13}$' then b->>'isbn' end;
+  r.thumbnail := case when coalesce(b->>'thumbnail', '') ~ '^https://' and char_length(b->>'thumbnail') <= 500 then b->>'thumbnail' end;
+  r.category := _check_category(b->>'category');
+  r.level := case when b->>'level' in ('1', '2', '3') then (b->>'level')::smallint else 2 end;
+  r.grade_from := _clean(b->>'grade_from', 20);
+  r.note := _clean(b->>'note', 200);
+  r.source := _clean(b->>'source', 50);
+  return r;
+end $$;
+
+create or replace function public.admin_save_recommended(p_pw text, p_book jsonb)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+        r public.recommended_books;
+        rid bigint := nullif(p_book->>'id', '')::bigint;
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  r := _rec_row(p_book);
+  if r.title is null or r.author is null then return json_build_object('error', 'MISSING_FIELD'); end if;
+  if rid is null then
+    insert into public.recommended_books (title, author, publisher, pub_year, isbn, thumbnail, category, level, grade_from, note, source)
+    values (r.title, r.author, r.publisher, r.pub_year, r.isbn, r.thumbnail, r.category, r.level, r.grade_from, r.note, r.source)
+    returning id into rid;
+    perform _log('추천도서 추가', r.title || ' / ' || r.author);
+  else
+    update public.recommended_books
+       set title = r.title, author = r.author, publisher = r.publisher, pub_year = r.pub_year, isbn = r.isbn,
+           thumbnail = r.thumbnail, category = r.category, level = r.level, grade_from = r.grade_from,
+           note = r.note, source = r.source
+     where id = rid;
+    perform _log('추천도서 수정', r.title || ' / ' || r.author);
+  end if;
+  return json_build_object('ok', true, 'id', rid);
+end $$;
+
+-- 엑셀 일괄 등록: 제목+저자가 이미 있는 책은 건너뜁니다. {"ok": true, "added": n, "skipped": n}
+create or replace function public.admin_import_recommended(p_pw text, p_books jsonb)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+        b jsonb;
+        r public.recommended_books;
+        added int := 0;
+        skipped int := 0;
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  if jsonb_typeof(p_books) <> 'array' or jsonb_array_length(p_books) > 500 then
+    return json_build_object('error', 'MISSING_FIELD');
+  end if;
+  for b in select * from jsonb_array_elements(p_books) loop
+    r := _rec_row(b);
+    if r.title is null or r.author is null
+       or exists (select 1 from public.recommended_books x
+                   where regexp_replace(lower(x.title), '\s', '', 'g') = regexp_replace(lower(r.title), '\s', '', 'g')
+                     and regexp_replace(lower(x.author), '\s', '', 'g') = regexp_replace(lower(r.author), '\s', '', 'g')) then
+      skipped := skipped + 1;
+      continue;
+    end if;
+    insert into public.recommended_books (title, author, publisher, pub_year, isbn, thumbnail, category, level, grade_from, note, source)
+    values (r.title, r.author, r.publisher, r.pub_year, r.isbn, r.thumbnail, r.category, r.level, r.grade_from, r.note, r.source);
+    added := added + 1;
+  end loop;
+  perform _log('추천도서 일괄 등록', added || '권 추가, ' || skipped || '권 건너뜀');
+  return json_build_object('ok', true, 'added', added, 'skipped', skipped);
+end $$;
+
+create or replace function public.admin_delete_recommended(p_pw text, p_id bigint)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  perform _log('추천도서 삭제', (select title || ' / ' || author from public.recommended_books where id = p_id));
+  delete from public.recommended_books where id = p_id;
+  return json_build_object('ok', true);
+end $$;
+
 -- 관리자 작업 기록 (최근 300개)
 create or replace function public.admin_get_log(p_pw text)
 returns json language plpgsql security definer
@@ -952,6 +1072,7 @@ grant execute on function
   public.get_settings(),
   public.get_board(),
   public.get_board_changes(timestamptz),
+  public.get_recommended(),
   public.create_post(text, text, text, text, text, text, text, text, text, text, text, boolean),
   public.add_entry(bigint, text, text, text, text, text, boolean),
   public.edit_entry(bigint, bigint, text, text, text, text, text),
@@ -979,7 +1100,10 @@ grant execute on function
   public.admin_set_board(text, text, text),
   public.admin_set_comment_hidden(text, bigint, boolean),
   public.admin_hide_recent(text, int),
-  public.admin_get_log(text)
+  public.admin_get_log(text),
+  public.admin_save_recommended(text, jsonb),
+  public.admin_import_recommended(text, jsonb),
+  public.admin_delete_recommended(text, bigint)
 to anon, authenticated;
 
 -- ---------------------------------------------------------------------
