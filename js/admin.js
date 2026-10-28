@@ -192,7 +192,7 @@
       const entries = (p.entries || []).filter((e) => inRange(e, from, to) && (!cat || e.category === cat));
       if (!entries.length) continue;
       if (q) {
-        const text = [p.author_name, p.nickname, p.student_no,
+        const text = [p.author_name, p.student_no,
           ...p.entries.flatMap((e) => [e.book_title, e.book_author, e.quote, e.category]),
           ...(p.comments || []).flatMap((c) => [c.student_no, c.author_name, c.body])].join(" ").toLowerCase();
         if (!text.includes(q)) continue;
@@ -316,8 +316,7 @@
     const open = expanded.has(p.id);
     const tr = h("tr", { class: (p.hidden ? "is-hidden " : "") + "c-" + p.color },
       h("td", { "data-label": "학번/부서" }, p.student_no),
-      h("td", { "data-label": "이름" }, p.role === "teacher" ? h("span", { class: "pill teacher" }, "교사") : null, " ", h("b", null, p.author_name)),
-      h("td", { "data-label": "닉네임" }, p.nickname || "–"),
+      h("td", { "data-label": "별명" }, p.role === "teacher" ? h("span", { class: "pill teacher" }, "교사") : null, " ", h("b", null, p.author_name)),
       h("td", { "data-label": "책", class: "book-cell" },
         h("span", { class: "dot", title: colorLabel[p.color] }),
         "『" + last.book_title + "』 ", h("small", null, last.book_author)),
@@ -352,7 +351,7 @@
         } }, "삭제")));
 
     if (!open) return [tr];
-    const detail = h("tr", { class: "detail" }, h("td", { colspan: 10 },
+    const detail = h("tr", { class: "detail" }, h("td", { colspan: 9 },
       reportCount(p)
         ? h("div", { class: "report-box" },
             h("h4", null, "🚩 신고 " + reportCount(p) + "건",
@@ -431,7 +430,7 @@
     $("#resultCount").textContent = "조건에 맞는 게시물 " + list.length + "개 · 글 " + entryCount + "개";
     rowsEl.replaceChildren(...(list.length
       ? list.flatMap(postRow)
-      : [h("tr", null, h("td", { colspan: 10, class: "empty" }, posts.length ? "조건에 맞는 게시물이 없어요." : "아직 게시물이 없어요."))]));
+      : [h("tr", null, h("td", { colspan: 9, class: "empty" }, posts.length ? "조건에 맞는 게시물이 없어요." : "아직 게시물이 없어요."))]));
   }
 
   let t;
@@ -448,8 +447,7 @@
           "게시물 번호": p.id,
           "학생/교사": p.role === "teacher" ? "교사" : "학생",
           "학번/부서": p.student_no,
-          "이름": p.author_name,
-          "닉네임": p.nickname || "",
+          "별명": p.author_name,
           "글 구분": idx === 0 ? "첫 글" : "이어쓰기 " + idx,
           "책 제목": e.book_title,
           "저자": e.book_author,
@@ -475,7 +473,7 @@
           "게시물 작성자": p.student_no + " " + p.author_name,
           "게시물 책": "『" + p.entries[p.entries.length - 1].book_title + "』",
           "댓글 학번/부서": c.student_no,
-          "댓글 이름": c.author_name,
+          "댓글 별명": c.author_name,
           "교사 댓글": c.is_teacher ? "교사" : "",
           "댓글 내용": c.body,
           "작성일시": fmtDate(c.created_at, true),
@@ -489,8 +487,7 @@
     return list.map(({ post: p, entries }) => ({
       "학생/교사": p.role === "teacher" ? "교사" : "학생",
       "학번/부서": p.student_no,
-      "이름": p.author_name,
-      "닉네임": p.nickname || "",
+      "별명": p.author_name,
       "글 수": entries.length,
       "받은 댓글": (p.comments || []).length,
       "받은 공감": p.like_count || 0,
@@ -601,7 +598,7 @@
   });
 
   // ---------- 학생별 독서 기록 카드 ----------
-  // 같은 학번 + 이름의 글을 보관한 학기까지 모두 모아 한 장에 담습니다. (숨긴 글은 빼요)
+  // 같은 학번 + 별명의 글을 보관한 학기까지 모두 모아 한 장에 담습니다. (숨긴 글은 빼요)
   const personKey = (p) => (p.role || "student") + "|" + String(p.student_no || "").trim() + "|" + String(p.author_name || "").replace(/\s/g, "");
 
   function recordCard(key) {
@@ -615,14 +612,12 @@
     for (const { e } of rows) if (e.category) cats[e.category] = (cats[e.category] || 0) + 1;
     const likes = mine.reduce((n, p) => n + (p.like_count || 0), 0);
     const comments = mine.reduce((n, p) => n + (p.comments || []).length, 0);
-    const nick = [...new Set(mine.map((p) => p.nickname).filter(Boolean))].join(", ");
     return h("section", { class: "rc" },
       h("h1", null, "📚 독서 기록 카드"),
       h("p", { class: "rc-school" }, cfg.TITLE || "독서나눔 릴레이"),
       h("table", { class: "rc-info" }, h("tbody", null, h("tr", null,
         h("th", null, who.role === "teacher" ? "부서" : "학번"), h("td", null, who.student_no),
-        h("th", null, "이름"), h("td", null, who.author_name),
-        h("th", null, "닉네임"), h("td", null, nick || "–"),
+        h("th", null, "별명"), h("td", null, who.author_name),
         h("th", null, "출력일"), h("td", null, fmtDate(new Date().toISOString()))))),
       h("p", { class: "rc-sum" },
         h("b", null, "소개한 책 " + books.size + "권"), " · 글 " + rows.length + "개 · 받은 공감 " + likes + " · 받은 댓글 " + comments,

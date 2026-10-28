@@ -118,6 +118,10 @@ create table if not exists public.admin_log (
 );
 create index if not exists admin_log_created_at_idx on public.admin_log(created_at);
 
+-- [11차 업데이트] 개인정보 최소 수집: 실명을 받지 않고 학번(교사는 부서)과 별명만 받습니다.
+-- author_name 칸에는 이제 '별명'이 들어가고 nickname 칸은 쓰지 않습니다. 기존 실명은 아래 '실명 지우기'에서 한 번만 별명으로 바꿉니다.
+alter table public.admin_config add column if not exists names_removed boolean not null default false;
+
 -- [10차 업데이트] 추천도서 목록 (관리자가 등록, 학생 화면 '추천도서' 탭에서 봄)
 -- level: 난이도 1 입문 · 2 보통 · 3 도전 / grade_from: 대상 학년(예: '고1부터')
 create table if not exists public.recommended_books (
@@ -258,8 +262,7 @@ returns json language sql stable security definer
 set search_path = public as $$
   select coalesce(json_agg(b order by b.updated_at desc), '[]'::json)
   from (
-    select p.id, p.role, p.student_no, p.author_name, p.nickname,
-           coalesce(p.nickname, p.author_name) as display_name,
+    select p.id, p.role, p.student_no, p.author_name, p.author_name as display_name,
            p.color, p.pinned, p.created_at, p.updated_at,
            (select count(*) from public.comments c where c.post_id = p.id and not c.hidden) as comment_count,
            (select count(*) from public.post_likes l where l.post_id = p.id) as like_count,
@@ -380,6 +383,7 @@ drop function if exists public.create_post(text, text, text, text, text, text, t
 drop function if exists public.create_post(text, text, text, text, text, text, text, text, text, text);
 drop function if exists public.create_post(text, text, text, text, text, text, text, text, text, text, text);
 -- p_topic: 이달의 주제에 참여하면 true (주제 이름은 서버에 저장된 값을 씁니다)
+-- p_name 은 별명입니다. p_nickname 은 예전 화면과 맞추려고 남겨 둔 칸이고 저장하지 않습니다.
 create or replace function public.create_post(
   p_role text, p_student_no text, p_name text, p_nickname text, p_pin text, p_color text,
   p_quote text, p_book_title text, p_book_author text, p_teacher_code text default null,
@@ -403,7 +407,7 @@ begin
     err := _teacher_check(p_teacher_code);
     if err is not null then return json_build_object('error', err); end if;
   end if;
-  -- 도배 방지: 같은 학번(부서)·이름으로는 1분에 한 번만 새 글
+  -- 도배 방지: 같은 학번(부서)·별명으로는 1분에 한 번만 새 글
   if exists (select 1 from public.posts
               where lower(student_no) = lower(_clean(p_student_no, 20))
                 and author_name = _clean(p_name, 20)
@@ -414,13 +418,13 @@ begin
   if (select count(*) from public.posts where created_at > now() - interval '1 minute') >= 60 then
     return json_build_object('error', 'BUSY');
   end if;
-  if _has_banned(p_name, p_nickname, p_quote, p_book_title, p_book_author) then
+  if _has_banned(p_name, p_quote, p_book_title, p_book_author) then
     return json_build_object('error', 'BANNED_WORD');
   end if;
 
   insert into public.posts (role, student_no, author_name, nickname, pin_hash, color)
   values (case when is_teacher then 'teacher' else 'student' end, _clean(p_student_no, 20),
-          _clean(p_name, 20), _clean(p_nickname, 20), crypt(p_pin, gen_salt('bf')), _check_color(p_color))
+          _clean(p_name, 20), null, crypt(p_pin, gen_salt('bf')), _check_color(p_color))
   returning id into new_id;
 
   insert into public.entries (post_id, quote, book_title, book_author, category, topic)
@@ -561,7 +565,7 @@ begin
   if (select count(*) from public.comments where post_id = p_post_id) >= 100 then
     return json_build_object('error', 'TOO_MANY_COMMENTS');
   end if;
-  -- 도배 방지: 같은 학번·이름으로는 20초에 댓글 하나
+  -- 도배 방지: 같은 학번·별명으로는 20초에 댓글 하나
   if exists (select 1 from public.comments
               where lower(student_no) = lower(_clean(p_student_no, 20))
                 and author_name = _clean(p_name, 20)
@@ -791,7 +795,7 @@ end $$;
 -- DB 구조의 버전. schema.sql 을 바꿀 때마다 1씩 올리고 js/common.js 의 SCHEMA_VERSION 도 같이 올립니다.
 -- 화면은 이 값이 더 작으면 "schema.sql 을 다시 실행해 주세요" 라고 알려 줍니다.
 create or replace function public.schema_version()
-returns int language sql immutable as $$ select 10 $$;
+returns int language sql immutable as $$ select 11 $$;
 
 -- 게시판 맨 위 공지와 이달의 주제 (학생 화면에서 읽음)
 create or replace function public.get_settings()
@@ -1117,3 +1121,41 @@ on conflict (id) do nothing;
 
 -- 새로 만든 함수를 API 가 바로 알아보도록 목록을 새로 고칩니다.
 notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------
+-- [11차] 실명 지우기 (한 번만 실행됩니다)
+-- 같은 사람(학번과 실명이 같은 글·댓글)은 같은 별명으로 바꿔서 '내 글' 확인과 독서 배지가 그대로 이어집니다.
+-- 별명: 그 사람이 글에 적은 닉네임 중 가장 최근 것. 닉네임이 없었으면 '독자' + 실명을 알 수 없게 만든 4글자.
+-- 보관한 학기의 글도 바꾸고, 관리자 작업 기록의 삭제 기록에서는 이름을 지웁니다. 되돌릴 수 없습니다.
+-- ---------------------------------------------------------------------
+do $$
+declare n int;
+begin
+  if (select names_removed from public.admin_config where id = 1) then return; end if;
+
+  create temp table _who on commit drop as
+  select x.sno, x.real_name,
+         coalesce((select p.nickname from public.posts p
+                    where lower(p.student_no) = x.sno and p.author_name = x.real_name and p.nickname is not null
+                    order by p.created_at desc limit 1),
+                  '독자' || upper(substr(md5(x.sno || '|' || x.real_name), 1, 4))) as nick
+    from (select lower(student_no) as sno, author_name as real_name from public.posts
+          union
+          select lower(student_no), author_name from public.comments) x;
+  get diagnostics n = row_count;
+
+  update public.posts p set author_name = w.nick, nickname = null
+    from _who w where lower(p.student_no) = w.sno and p.author_name = w.real_name;
+  update public.posts set nickname = null where nickname is not null;
+  update public.comments c set author_name = w.nick
+    from _who w where lower(c.student_no) = w.sno and c.author_name = w.real_name;
+
+  -- 삭제 기록: '게시물 #12 20315 홍길동' → '게시물 #12 20315', '댓글 #5 20315 홍길동: 내용' → '댓글 #5 20315: 내용'
+  update public.admin_log set detail = regexp_replace(detail, '^(게시물 #[0-9]+ [^ ]+) .*$', '\1')
+   where action = '게시물 삭제';
+  update public.admin_log set detail = regexp_replace(detail, '^(댓글 #[0-9]+ [^ ]+) [^:]*:', '\1:')
+   where action = '댓글 삭제';
+
+  update public.admin_config set names_removed = true where id = 1;
+  if n > 0 then perform public._log('실명 지우기', '글·댓글의 이름을 별명으로 바꿈 (' || n || '명)'); end if;
+end $$;
