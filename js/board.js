@@ -24,8 +24,18 @@
   let revealId = null;              // '더 보기' 뒤에 있어도 그려야 하는 말풍선
   let limit = PAGE, lastFilterKey = "";
 
-  // 같은 기기에서는 학번·이름을 기억해 다음에 자동으로 채웁니다.
-  const ME_KEY = "reading-board-me";
+  // 같은 기기에서는 학번·별명을 기억해 다음에 자동으로 채웁니다.
+  // 예전 판(reading-board-me)은 실명을 기억했으므로, 별명만 옮기고 지웁니다.
+  const ME_KEY = "reading-board-me-v2";
+  try {
+    const old = JSON.parse(localStorage.getItem("reading-board-me"));
+    if (old) {
+      if (!localStorage.getItem(ME_KEY)) {
+        localStorage.setItem(ME_KEY, JSON.stringify({ role: old.role, student_no: old.student_no, author_name: old.nickname || "" }));
+      }
+      localStorage.removeItem("reading-board-me");
+    }
+  } catch (e) {}
   function loadMe() { try { return JSON.parse(localStorage.getItem(ME_KEY)) || {}; } catch (e) { return {}; } }
   function saveMe(patch) { try { localStorage.setItem(ME_KEY, JSON.stringify(Object.assign(loadMe(), patch))); } catch (e) {} }
 
@@ -66,7 +76,7 @@
       e.topic ? h("span", { class: "topic-chip", title: "이달의 주제 참여 글" }, "🎯 " + e.topic) : null);
   }
 
-  // 말풍선 아래 작성자 표시: 학번(교사는 부서) 이름 (닉네임)
+  // 말풍선 아래 작성자 표시: 학번(교사는 부서) 별명
   function identity(p) {
     const teacher = p.role === "teacher";
     return h("div", { class: "ident" },
@@ -74,12 +84,11 @@
         teacher ? h("span", { class: "role-chip" }, "선생님") : null,
         p.student_no ? h("span", { class: "sno" }, p.student_no) : null,
         h("span", { class: "name" }, p.author_name || p.display_name),
-        p.nickname ? h("span", { class: "nick" }, "(" + p.nickname + ")") : null,
         badgesOf(p)),
       h("time", { datetime: p.created_at, title: fmtDate(p.created_at, true) }, timeAgo(p.updated_at)));
   }
 
-  // ---------- 독서 배지: 같은 사람(학번+이름)이 소개한 책 수와 계열 수로 정합니다 ----------
+  // ---------- 독서 배지: 같은 사람(학번+별명)이 소개한 책 수와 계열 수로 정합니다 ----------
   const BADGES = [
     [10, "🥇", "책 10권 이상 소개"],
     [5, "🥈", "책 5권 이상 소개"],
@@ -269,7 +278,7 @@
     const f = h("form", { class: "comment-form", novalidate: true },
       h("div", { class: "comment-fields" },
         h("input", { name: "student_no", maxlength: 20, placeholder: "학번/부서", "aria-label": "학번 또는 부서", value: me.student_no || "" }),
-        h("input", { name: "author_name", maxlength: 20, placeholder: "이름", "aria-label": "이름", value: me.author_name || "" }),
+        h("input", { name: "author_name", maxlength: 20, placeholder: "별명", "aria-label": "별명", value: me.author_name || "" }),
         h("input", { name: "pin", type: "password", inputmode: "numeric", maxlength: 4, placeholder: "비번 4자리", "aria-label": "비밀번호 4자리", autocomplete: "off" })),
       h("div", { class: "comment-fields teacher-fields" },
         h("label", { class: "teacher-toggle" },
@@ -288,7 +297,7 @@
       e.preventDefault();
       if (readOnly) return toast("예시 말풍선이에요. 실제 게시판에서 댓글을 남겨 보세요!");
       const err = !f.student_no.value.trim() ? "학번(교사는 부서)을 입력해 주세요."
-        : !f.author_name.value.trim() ? "이름을 입력해 주세요."
+        : !f.author_name.value.trim() ? "별명을 입력해 주세요."
         : !/^\d{4}$/.test(f.pin.value) ? "비밀번호는 숫자 4자리로 입력해 주세요."
         : !f.body.value.trim() ? "댓글 내용을 입력해 주세요."
         : f.as_teacher.checked && !f.teacher_code.value.trim() ? "교사 인증 코드를 입력해 주세요." : null;
@@ -326,7 +335,7 @@
   }
 
   function matches(p, q) {
-    return [p.student_no, p.author_name, p.nickname, p.display_name,
+    return [p.student_no, p.author_name,
       ...(p.entries || []).flatMap((e) => [e.book_title, e.book_author, e.quote])]
       .join(" ").toLowerCase().includes(q);
   }
@@ -632,7 +641,6 @@
       h("p", { class: "show-quote" }, e.quote),
       h("footer", { class: "show-who" },
         teacher ? "선생님 · " : "", p.student_no + " " + (p.author_name || p.display_name),
-        p.nickname ? " (" + p.nickname + ")" : "",
         p.entries.length > 1 ? h("span", { class: "show-more" }, "📖 " + (p.entries.length - 1) + "번 이어 씀") : null,
         p.like_count ? h("span", { class: "show-more" }, "❤️ " + p.like_count) : null)));
     $("#showCount").textContent = (showIdx + 1) + " / " + showList.length;
@@ -863,7 +871,6 @@
       applyRole();
       postForm.student_no.value = me.student_no;
       postForm.author_name.value = me.author_name || "";
-      postForm.nickname.value = me.nickname || "";
     }
     postDialog.showModal();
     updatePostCount();
@@ -890,7 +897,7 @@
           p_role: f.elements.role.value,
           p_student_no: f.student_no.value.trim(),
           p_name: f.author_name.value.trim(),
-          p_nickname: f.nickname.value.trim() || null,
+          p_nickname: null,
           p_pin: f.pin.value,
           p_color: f.color.value,
           p_quote: f.quote.value.trim(),
@@ -900,7 +907,7 @@
           p_topic: !!settings.topic && f.topic_join.checked,
         });
         saveMe({ role: f.elements.role.value, student_no: f.student_no.value.trim(),
-          author_name: f.author_name.value.trim(), nickname: f.nickname.value.trim() });
+          author_name: f.author_name.value.trim() });
         postDialog.close();
         f.reset();
         applyRole();

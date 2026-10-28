@@ -11,7 +11,7 @@
   <link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261028b">
+  <link rel="stylesheet" href="css/style.css?v=20261028c">
 </head>
 <body class="board-page">
   <header class="topbar">
@@ -26,7 +26,7 @@
       <div class="toolbar">
         <label class="search">
           <span class="sr-only">검색</span>
-          <input id="search" type="search" placeholder="책 제목, 저자, 이름 검색" autocomplete="off">
+          <input id="search" type="search" placeholder="책 제목, 저자, 별명 검색" autocomplete="off">
         </label>
         <button class="btn help-btn" type="button" id="helpBtn" title="게시판 사용법">❓ 사용법</button>
         <button class="btn demo-btn" type="button" data-demo-toggle>👀 예시 화면</button>
@@ -89,7 +89,7 @@
       <summary>📌 비방·거짓 정보는 <b>예고 없이 삭제</b>돼요. <span class="more">자세히</span></summary>
       <p>독서 나눔이라는 목적에 맞지 않는 글, <b>다른 사람을 비방하는 글</b>, <b>거짓 정보</b> 등은
       관리자가 <b>예고 없이 삭제</b>할 수 있어요. 댓글도 같아요. 서로의 독서를 응원하는 따뜻한 말을 남겨 주세요.</p>
-      <p class="rules-note">🏅 <b>독서 배지</b> · 이번 학기에 소개한 책이 3권이면 🥉, 5권이면 🥈, 10권이면 🥇, 서로 다른 계열(기타 제외)의 책을 3가지 이상 소개하면 🌈 배지가 이름 옆에 붙어요.</p>
+      <p class="rules-note">🏅 <b>독서 배지</b> · 이번 학기에 소개한 책이 3권이면 🥉, 5권이면 🥈, 10권이면 🥇, 서로 다른 계열(기타 제외)의 책을 3가지 이상 소개하면 🌈 배지가 별명 옆에 붙어요.</p>
     </details>
     <div class="board-notice" id="boardNotice" hidden></div>
     <button type="button" class="my-notice" id="myNotice" hidden></button>
@@ -165,14 +165,11 @@
             <label><span data-label id="snoLabel">학번</span> <b class="req">*</b>
               <input name="student_no" inputmode="numeric" maxlength="20" required placeholder="예: 20315">
             </label>
-            <label>이름 <b class="req">*</b>
-              <input name="author_name" maxlength="20" required placeholder="홍길동" autocomplete="off">
+            <label>별명 <b class="req">*</b>
+              <input name="author_name" maxlength="20" required placeholder="예: 책읽는고래" autocomplete="off">
             </label>
           </div>
           <div class="row">
-            <label>닉네임 <span class="opt">(선택)</span>
-              <input name="nickname" maxlength="20" placeholder="게시판에 이름 대신 보여요" autocomplete="off">
-            </label>
             <label>비밀번호 4자리 <b class="req">*</b>
               <input name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required placeholder="숫자 4자리" autocomplete="new-password">
             </label>
@@ -180,7 +177,7 @@
           <label class="teacher-only">교사 인증 코드 <b class="req">*</b>
             <input name="teacher_code" type="password" maxlength="40" placeholder="관리자에게 받은 교사 인증 코드" autocomplete="off">
           </label>
-          <p class="hint">말풍선 아래에 <b>학번(교사는 부서) · 이름 · 닉네임</b> 순서로 표시돼요.<br>비밀번호는 나중에 내용을 이어 쓸 때 필요해요.</p>
+          <p class="hint">말풍선 아래에 <b>학번(교사는 부서) · 별명</b>이 표시돼요. 실명은 쓰지 마세요.<br>비밀번호는 나중에 내용을 이어 쓸 때 필요해요.</p>
         </fieldset>
 
         <fieldset>
@@ -314,11 +311,11 @@
         <section id="h-board">
           <h3>📚 게시판은 이렇게 생겼어요</h3>
           <ul>
-            <li><b>말풍선 하나 = 한 사람의 독서 기록</b>이에요. 위에는 책 제목·저자·계열과 내용이, 아래에는 <b>학번 · 이름 · 닉네임</b>이 보여요.</li>
+            <li><b>말풍선 하나 = 한 사람의 독서 기록</b>이에요. 위에는 책 제목·저자·계열과 내용이, 아래에는 <b>학번 · 별명</b>이 보여요.</li>
             <li>같은 말풍선에 글을 <b>이어 쓰면</b> 겹친 종이 모양이 되고 "📖 n번 이어 씀" 표시가 붙어요. 이어 쓴 글은 아래에 점선 풍선으로 달려요.</li>
             <li>🍎 편지지 모양 말풍선은 <b>선생님의 책</b>이에요.</li>
             <li>맨 위 <b>📚 추천도서</b> 탭에서 선생님들이 고른 책을 분야·난이도(🌱 입문 · 🌿 보통 · 🌳 도전)별로 볼 수 있어요. 읽은 책은 <b>[✏️ 이 책 소개하기]</b>를 눌러 바로 릴레이에 올려요.</li>
-            <li>위쪽 탭으로 <b>학년별</b>, 선택 상자로 <b>계열별</b>로 골라 보고, 댓글·공감 많은 순으로 정렬할 수 있어요. 검색창에서는 책 제목·저자·이름을 찾을 수 있어요.</li>
+            <li>위쪽 탭으로 <b>학년별</b>, 선택 상자로 <b>계열별</b>로 골라 보고, 댓글·공감 많은 순으로 정렬할 수 있어요. 검색창에서는 책 제목·저자·별명을 찾을 수 있어요.</li>
             <li>어떤 모습인지 궁금하면 <button type="button" class="link-btn" data-demo-help>👀 예시 화면</button>을 눌러 보세요.</li>
           </ul>
         </section>
@@ -327,7 +324,7 @@
           <h3>✏️ 글쓰기 (처음 소개하기)</h3>
           <ol>
             <li><b>[✏️ 글쓰기]</b>를 눌러요. (휴대폰은 오른쪽 아래 버튼)</li>
-            <li><b>학번, 이름</b>을 쓰고 <b>비밀번호 숫자 4자리</b>를 정해요. 닉네임은 선택이에요.
+            <li><b>학번(선생님은 부서)과 별명</b>을 쓰고 <b>비밀번호 숫자 4자리</b>를 정해요. 실명은 받지 않아요.
               <span class="help-warn">비밀번호는 이어 쓰기·고치기에 꼭 필요하니 기억해 두세요!</span></li>
             <li><b>책 제목</b>을 두 글자 이상 쓰면 아래에 책 목록이 떠요. 골라 누르면 제목과 저자가 바르게 채워져요.</li>
             <li><b>계열</b>(소설, 인문과학, 자연과학 …)을 고르고, 읽고 있는 부분이나 마음에 남은 문장을 적어요(500자까지).</li>
@@ -348,7 +345,7 @@
         <section id="h-comment">
           <h3>💬 댓글 · ❤️ 공감 · 🚩 신고</h3>
           <ul>
-            <li>말풍선 아래 <b>[💬 댓글]</b>을 누르면 댓글을 보고 남길 수 있어요. 학번·이름·비밀번호 4자리를 넣고, 같은 비밀번호로 내 댓글을 지울 수 있어요.</li>
+            <li>말풍선 아래 <b>[💬 댓글]</b>을 누르면 댓글을 보고 남길 수 있어요. 학번·별명·비밀번호 4자리를 넣고, 같은 비밀번호로 내 댓글을 지울 수 있어요.</li>
             <li>선생님 댓글에는 <span class="role-chip">🍎 선생님</span> 표시가 붙어요.</li>
             <li><b>❤️</b>를 눌러 친구의 독서를 응원해요. 한 번 더 누르면 취소돼요.</li>
             <li>내 말풍선에 새 댓글이 달리면 <b>같은 기기</b>에서 게시판 위에 알림이 떠요.</li>
@@ -363,7 +360,7 @@
             <li><span class="pin-tag small">📌 선생님 추천</span> 선생님이 고른 글은 게시판 <b>맨 위</b>에 걸려요.</li>
             <li><b>🏆 많이 소개된 책</b>: 여러 친구가 소개한 책 TOP 5예요. 누르면 그 책 글만 모아 봐요.</li>
             <li><b>🏫 참여 많은 반</b>: 글을 쓴 학생이 많은 반 TOP 3를 보여 줘요. 우리 반 친구들이 많이 참여할수록 순위가 올라가요!</li>
-            <li><b>🏅 독서 배지</b>: 이번 학기에 소개한 책이 3권이면 🥉, 5권이면 🥈, 10권이면 🥇, 서로 다른 계열 3가지 이상이면 🌈가 이름 옆에 붙어요.</li>
+            <li><b>🏅 독서 배지</b>: 이번 학기에 소개한 책이 3권이면 🥉, 5권이면 🥈, 10권이면 🥇, 서로 다른 계열 3가지 이상이면 🌈가 별명 옆에 붙어요.</li>
             <li><b>🎯 이달의 주제</b>: 주제가 있는 달에는 게시판 위 [주제 글만 보기]로 주제 참여 글을 모아 볼 수 있어요.</li>
           </ul>
         </section>
@@ -371,7 +368,7 @@
         <section id="h-rule">
           <h3>🤝 우리의 약속</h3>
           <ul>
-            <li>학번과 이름이 함께 공개돼요. 다른 사람 이름으로 쓰지 않아요.</li>
+            <li>학번과 별명이 함께 공개돼요. 실명이나 다른 사람을 떠올리게 하는 별명은 쓰지 않아요.</li>
             <li>비방, 거짓 정보, 독서와 관계없는 글은 <b>예고 없이 삭제</b>될 수 있어요.</li>
             <li>서로의 독서를 응원하는 따뜻한 말을 남겨요. 😊</li>
           </ul>
@@ -384,10 +381,10 @@
     </form>
   </dialog>
 
-  <script src="js/config.js?v=20261028b"></script>
-  <script src="js/common.js?v=20261028b"></script>
-  <script src="js/examples.js?v=20261028b"></script>
-  <script src="js/board.js?v=20261028b"></script>
-  <script src="js/recommend.js?v=20261028b"></script>
+  <script src="js/config.js?v=20261028c"></script>
+  <script src="js/common.js?v=20261028c"></script>
+  <script src="js/examples.js?v=20261028c"></script>
+  <script src="js/board.js?v=20261028c"></script>
+  <script src="js/recommend.js?v=20261028c"></script>
 </body>
 </html>
