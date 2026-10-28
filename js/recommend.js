@@ -104,10 +104,16 @@
     const shown = books.filter((b) => (level === "all" || String(b.level) === level)
       && (!cat || b.category === cat)
       && (!q || norm(b.title + b.author).includes(q)));
-    const sort = sortSel.value;
-    if (sort === "easy") shown.sort((a, b) => a.level - b.level);
-    else if (sort === "hard") shown.sort((a, b) => b.level - a.level);
-    else if (sort === "popular") shown.sort((a, b) => countOf(b) - countOf(a));
+    // 엑셀로 한꺼번에 넣은 책은 등록 시각과 난이도가 같은 경우가 많아서, 같으면 제목 가나다순으로 잇습니다.
+    const byTitle = (a, b) => a.title.localeCompare(b.title, "ko");
+    const SORTS = {
+      new: (a, b) => (a.created_at < b.created_at) - (a.created_at > b.created_at) || byTitle(a, b),
+      easy: (a, b) => a.level - b.level || byTitle(a, b),
+      hard: (a, b) => b.level - a.level || byTitle(a, b),
+      popular: (a, b) => countOf(b) - countOf(a) || a.level - b.level || byTitle(a, b),
+      title: byTitle,
+    };
+    shown.sort(SORTS[sortSel.value] || SORTS.new);
     listEl.replaceChildren(...shown.slice(0, limit).map((b) => card(b, countOf(b))));
     const rest = shown.length - limit;
     moreBtn.hidden = rest <= 0;
