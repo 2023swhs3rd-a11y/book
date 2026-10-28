@@ -856,8 +856,13 @@
       if (!books.length) return toast("제목·저자가 있는 줄이 없어요. 양식의 첫 줄(제목, 저자 …)을 지켜 주세요.", true);
       if (!(await ask({ title: "📚 추천도서 일괄 등록", okText: "등록",
         message: "‘" + file.name + "’에서 " + books.length + "권을 찾았어요. 등록할까요? (이미 있는 책은 건너뛰어요)" }))) return;
-      const res = await rpc("admin_import_recommended", { p_pw: pw, p_books: books.slice(0, 500) });
-      toast(res.added + "권을 넣었어요." + (res.skipped ? " (" + res.skipped + "권은 이미 있거나 빈칸이라 건너뜀)" : ""));
+      // 서버는 한 번에 500권까지 받으므로 나눠서 보냅니다.
+      let added = 0, skipped = 0;
+      for (let i = 0; i < books.length; i += 500) {
+        const res = await rpc("admin_import_recommended", { p_pw: pw, p_books: books.slice(i, i + 500) });
+        added += res.added; skipped += res.skipped;
+      }
+      toast(added + "권을 넣었어요." + (skipped ? " (" + skipped + "권은 이미 있거나 빈칸이라 건너뜀)" : ""));
       loadRec();
     } catch (ex) { toast(ex.message, true); }
   });
