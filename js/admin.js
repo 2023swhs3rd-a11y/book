@@ -711,6 +711,157 @@
     } catch (ex) { toast(ex.message, true); }
   });
 
+  // ---------- 추천도서 ----------
+  const LEVELS = { 1: "🌱 입문", 2: "🌿 보통", 3: "🌳 도전" };
+  const recBox = $("#recBox");
+  const recForm = $("#recForm");
+  const rf = recForm.elements;
+  let recBooks = [];
+  recForm.querySelectorAll("select[data-categories]").forEach((sel) =>
+    sel.append(...CATEGORIES.map((c) => h("option", { value: c }, c))));
+
+  async function loadRec() {
+    try {
+      recBooks = await rpc("get_recommended");
+      renderRec();
+    } catch (e) { toast(e.message, true); }
+  }
+  recBox.addEventListener("toggle", () => { if (recBox.open) loadRec(); });
+
+  function renderRec() {
+    $("#recRows").replaceChildren(...(recBooks.length
+      ? recBooks.map((b) => h("tr", null,
+          h("td", { "data-label": "책" }, h("b", null, b.title), h("br"),
+            h("small", null, [b.author, b.publisher, b.pub_year].filter(Boolean).join(" · "))),
+          h("td", { "data-label": "분야" }, b.category || "–"),
+          h("td", { "data-label": "난이도" }, LEVELS[b.level]),
+          h("td", { "data-label": "대상" }, b.grade_from || "–"),
+          h("td", { "data-label": "출처" }, b.source || "–"),
+          h("td", { class: "actions" },
+            h("button", { class: "btn small", type: "button", onclick: () => editRec(b) }, "고치기"),
+            h("button", { class: "btn small danger", type: "button", onclick: async () => {
+              if (!(await ask({ title: "추천도서 삭제", danger: true, okText: "삭제", message: "『" + b.title + "』을(를) 추천도서에서 뺄까요?" }))) return;
+              try {
+                await rpc("admin_delete_recommended", { p_pw: pw, p_id: b.id });
+                toast("추천도서에서 뺐어요.");
+                loadRec();
+              } catch (e) { toast(e.message, true); }
+            } }, "삭제"))))
+      : [h("tr", null, h("td", { colspan: 6, class: "empty" }, "아직 등록한 추천도서가 없어요."))]));
+  }
+
+  // 난이도 채점: 네 항목 합계 4~6 입문, 7~9 보통, 10~12 도전
+  function scoreRec() {
+    const sum = ["s1", "s2", "s3", "s4"].reduce((n, k) => n + Number(rf[k].value), 0);
+    rf.level.value = sum <= 6 ? "1" : sum <= 9 ? "2" : "3";
+    $("#recScore").textContent = "합계 " + sum + "점 → " + LEVELS[rf.level.value] + " (직접 바꿔도 돼요)";
+  }
+  ["s1", "s2", "s3", "s4"].forEach((k) => rf[k].addEventListener("change", scoreRec));
+  scoreRec();
+
+  function editRec(b) {
+    recForm.reset();
+    for (const k of ["id", "title", "author", "publisher", "pub_year", "isbn", "thumbnail", "category", "grade_from", "note", "source"]) {
+      rf[k].value = b[k] ?? "";
+    }
+    rf.level.value = String(b.level);
+    $("#recScore").textContent = "저장된 난이도: " + LEVELS[b.level] + " (채점표를 바꾸면 다시 계산돼요)";
+    $("#recSave").textContent = "고친 내용 저장";
+    recForm.scrollIntoView({ behavior: "smooth", block: "start" });
+    rf.title.focus();
+  }
+  recForm.addEventListener("reset", () => setTimeout(() => {
+    rf.id.value = rf.isbn.value = rf.thumbnail.value = "";
+    $("#recSave").textContent = "추천도서 추가";
+    $("#recFound").hidden = true;
+    scoreRec();
+  }));
+
+  // 카카오 책 검색 (학생 화면과 같은 Supabase 함수)
+  $("#recFind").addEventListener("click", async () => {
+    const q = rf.title.value.trim();
+    if (q.length < 2) return toast("제목을 두 글자 이상 넣어 주세요.", true);
+    const found = $("#recFound");
+    try {
+      const key = cfg.SUPABASE_ANON_KEY;
+      const headers = { apikey: key };
+      if (key.startsWith("eyJ")) headers.Authorization = "Bearer " + key;
+      const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/" + (cfg.BOOK_SEARCH_FUNCTION || "book-search") + "?q=" + encodeURIComponent(q), { headers });
+      const body = await res.json();
+      if (!res.ok || !body.books) throw new Error(body.error || "책 검색을 쓸 수 없어요 (" + res.status + ")");
+      if (!body.books.length) throw new Error("검색 결과가 없어요. 직접 입력해 주세요.");
+      found.replaceChildren(...body.books.slice(0, 6).map((b) => h("li", null,
+        h("button", { type: "button", onclick: () => {
+          rf.title.value = String(b.title || "").replace(/\s*\(.*?\)\s*$/, "").trim();
+          rf.author.value = (b.authors || []).join(", ");
+          rf.publisher.value = b.publisher || "";
+          rf.pub_year.value = b.year || "";
+          rf.isbn.value = b.isbn || "";
+          rf.thumbnail.value = b.thumbnail || "";
+          found.hidden = true;
+        } },
+          b.thumbnail ? h("img", { src: b.thumbnail, alt: "", referrerpolicy: "no-referrer" }) : null,
+          h("span", null, h("b", null, b.title), h("small", null, [(b.authors || []).join(", "), b.publisher, b.year].filter(Boolean).join(" · ")))))));
+      found.hidden = false;
+    } catch (e) { toast(e.message, true); }
+  });
+
+  recForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const book = {};
+    for (const k of ["id", "title", "author", "publisher", "pub_year", "isbn", "thumbnail", "category", "level", "grade_from", "note", "source"]) book[k] = rf[k].value.trim();
+    if (!book.title || !book.author) return toast("제목과 저자는 꼭 넣어 주세요.", true);
+    if (book.pub_year && !/^\d{4}$/.test(book.pub_year)) return toast("출판년도는 네 자리 숫자로 넣어 주세요.", true);
+    try {
+      await rpc("admin_save_recommended", { p_pw: pw, p_book: book });
+      toast(book.id ? "고친 내용을 저장했어요." : "『" + book.title + "』을(를) 추천도서에 넣었어요.");
+      recForm.reset();
+      loadRec();
+    } catch (ex) { toast(ex.message, true); }
+  });
+
+  // 엑셀 양식과 일괄 등록
+  const REC_COLS = ["제목", "저자", "출판사", "출판년도", "분야", "난이도", "대상 학년", "추천 이유", "출처"];
+  $("#recTemplate").addEventListener("click", async () => {
+    try {
+      const XLSX = await loadXlsx();
+      const ws = XLSX.utils.json_to_sheet([{ "제목": "데미안", "저자": "헤르만 헤세", "출판사": "민음사", "출판년도": 2000,
+        "분야": "소설", "난이도": "보통", "대상 학년": "중3부터", "추천 이유": "나를 찾아가는 성장 이야기", "출처": "예시 (지우고 쓰세요)" }], { header: REC_COLS });
+      ws["!cols"] = [24, 14, 12, 8, 12, 8, 10, 40, 18].map((w) => ({ wch: w }));
+      const guide = XLSX.utils.aoa_to_sheet([["항목", "쓰는 법"], ["분야", CATEGORIES.join(", ")], ["난이도", "입문, 보통, 도전 (또는 1, 2, 3)"],
+        ["제목·저자", "꼭 써야 해요. 나머지는 비워도 돼요."]]);
+      guide["!cols"] = [{ wch: 10 }, { wch: 80 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "추천도서");
+      XLSX.utils.book_append_sheet(wb, guide, "쓰는 법");
+      XLSX.writeFile(wb, "추천도서_양식.xlsx");
+    } catch (e) { toast(e.message, true); }
+  });
+
+  $("#recFile").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const XLSX = await loadXlsx();
+      const wb = XLSX.read(await file.arrayBuffer());
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+      const lv = { "입문": 1, "보통": 2, "도전": 3, "1": 1, "2": 2, "3": 3 };
+      const books = rows.map((r) => ({
+        title: String(r["제목"]).trim(), author: String(r["저자"]).trim(), publisher: String(r["출판사"]).trim(),
+        pub_year: String(r["출판년도"]).trim(), category: String(r["분야"]).trim(),
+        level: lv[String(r["난이도"]).replace(/[^가-힣0-9]/g, "")] || 2,
+        grade_from: String(r["대상 학년"]).trim(), note: String(r["추천 이유"]).trim(), source: String(r["출처"]).trim(),
+      })).filter((b) => b.title && b.author && !b.source.startsWith("예시"));
+      if (!books.length) return toast("제목·저자가 있는 줄이 없어요. 양식의 첫 줄(제목, 저자 …)을 지켜 주세요.", true);
+      if (!(await ask({ title: "📚 추천도서 일괄 등록", okText: "등록",
+        message: "‘" + file.name + "’에서 " + books.length + "권을 찾았어요. 등록할까요? (이미 있는 책은 건너뛰어요)" }))) return;
+      const res = await rpc("admin_import_recommended", { p_pw: pw, p_books: books.slice(0, 500) });
+      toast(res.added + "권을 넣었어요." + (res.skipped ? " (" + res.skipped + "권은 이미 있거나 빈칸이라 건너뜀)" : ""));
+      loadRec();
+    } catch (ex) { toast(ex.message, true); }
+  });
+
   // ---------- 도배 정리 · 작업 기록 ----------
   const opsBox = $("#opsBox");
   async function loadLog() {

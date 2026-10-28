@@ -772,6 +772,7 @@
         if (p && p.comment_count != null && (commentCache[id] || []).length !== p.comment_count) fetchComments(id);
       }
       loaded = true;
+      document.dispatchEvent(new Event("board:loaded"));
     } catch (e) {
       if (!quiet) {
         if (!loaded) render();
@@ -847,9 +848,15 @@
   }
   postForm.querySelectorAll('input[name="role"]').forEach((r) => r.addEventListener("change", applyRole));
 
-  function openPost() {
+  // book: 추천도서 탭의 [이 책 소개하기]에서 넘겨주는 { title, author, category }
+  function openPost(book) {
     if (demo) setDemo(false);
     formError(postForm, "");
+    if (book && book.title) {
+      postForm.book_title.value = book.title;
+      postForm.book_author.value = book.author || "";
+      if (book.category) postForm.category.value = book.category;
+    }
     const me = loadMe();
     if (!postForm.student_no.value && me.student_no) {
       if (me.role === "teacher") postForm.querySelector('input[name="role"][value="teacher"]').checked = true;
@@ -862,8 +869,8 @@
     updatePostCount();
     if (!postForm.student_no.value) postForm.student_no.focus();
   }
-  $("#newBtn").addEventListener("click", openPost);
-  $("#fab").addEventListener("click", openPost);
+  $("#newBtn").addEventListener("click", () => openPost());
+  $("#fab").addEventListener("click", () => openPost());
 
   postForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -1068,6 +1075,9 @@
     keep("reading-board-help-seen", true);
     setTimeout(openHelp, 600);
   }
+
+  // 추천도서 탭(js/recommend.js)이 쓰는 연결
+  window.BoardApp = { posts: () => posts, norm, write: openPost };
 
   // ---------- 시작 ----------
   let searchTimer;

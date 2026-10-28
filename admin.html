@@ -9,8 +9,8 @@
   <link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-  <link rel="stylesheet" href="css/style.css?v=20261025a">
-  <link rel="stylesheet" href="css/admin.css?v=20261025a">
+  <link rel="stylesheet" href="css/style.css?v=20261028a">
+  <link rel="stylesheet" href="css/admin.css?v=20261028a">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -80,6 +80,54 @@
           </label>
           <div class="inline end"><button class="btn small primary" type="submit">저장</button></div>
         </form>
+      </details>
+
+      <details class="settings" id="recBox">
+        <summary>📚 추천도서 관리</summary>
+        <div class="class-body">
+          <p class="hint">학생 게시판 맨 위 <b>📚 추천도서</b> 탭에 보여요. 제목을 넣고 [🔎 찾기]를 누르면 카카오 책 검색으로 저자·출판사·출판년도·표지가 채워져요.</p>
+          <form id="recForm" class="rec-form" autocomplete="off">
+            <input type="hidden" name="id">
+            <input type="hidden" name="isbn">
+            <input type="hidden" name="thumbnail">
+            <div class="rec-grid">
+              <label class="wide">제목 *
+                <span class="inline"><input name="title" maxlength="100" required><button class="btn small" type="button" id="recFind">🔎 찾기</button></span>
+              </label>
+              <ul class="rec-found" id="recFound" hidden></ul>
+              <label>저자 *<input name="author" maxlength="100" required></label>
+              <label>출판사<input name="publisher" maxlength="50"></label>
+              <label>출판년도<input name="pub_year" inputmode="numeric" maxlength="4" placeholder="예: 2019"></label>
+              <label>분야<select name="category" data-categories><option value="">고르기</option></select></label>
+              <label>대상 학년<input name="grade_from" maxlength="20" placeholder="예: 고1부터"></label>
+              <label>출처<input name="source" maxlength="50" placeholder="예: 책따세 2026 여름"></label>
+              <label class="wide">추천 이유 (200자)<input name="note" maxlength="200" placeholder="한 줄로 이 책을 권하는 이유"></label>
+            </div>
+            <fieldset class="rec-score">
+              <legend>난이도 채점 (각 1~3점, 합계로 자동 결정)</legend>
+              <label>분량<select name="s1"><option value="1">1 · 250쪽 이하</option><option value="2" selected>2 · 250~400쪽</option><option value="3">3 · 400쪽 넘음</option></select></label>
+              <label>문장·어휘<select name="s2"><option value="1">1 · 일상어 중심</option><option value="2" selected>2 · 개념어가 섞임</option><option value="3">3 · 전문 용어·번역 문체</option></select></label>
+              <label>배경지식<select name="s3"><option value="1">1 · 없어도 읽힘</option><option value="2" selected>2 · 교과 수준</option><option value="3">3 · 교과를 넘음</option></select></label>
+              <label>글의 짜임<select name="s4"><option value="1">1 · 이야기 중심</option><option value="2" selected>2 · 이야기 + 설명</option><option value="3">3 · 논증·이론 중심</option></select></label>
+              <label>난이도<select name="level"><option value="1">🌱 입문</option><option value="2" selected>🌿 보통</option><option value="3">🌳 도전</option></select></label>
+              <p class="hint" id="recScore"></p>
+            </fieldset>
+            <div class="inline end">
+              <button class="btn small" type="reset">새로 쓰기</button>
+              <button class="btn small primary" type="submit" id="recSave">추천도서 추가</button>
+            </div>
+          </form>
+          <div class="rec-import">
+            <b>엑셀로 한꺼번에 등록</b>
+            <button class="btn small" type="button" id="recTemplate">⬇ 양식 내려받기</button>
+            <label class="btn small">📂 파일 올리기<input type="file" id="recFile" accept=".xlsx,.xls,.csv" hidden></label>
+            <span class="hint">제목·저자가 이미 있는 책은 건너뛰어요. 표지는 나중에 [고치기] → [🔎 찾기]로 넣을 수 있어요.</span>
+          </div>
+          <div class="table-wrap"><table class="admin-table rec-table">
+            <thead><tr><th>책</th><th>분야</th><th>난이도</th><th>대상</th><th>출처</th><th>관리</th></tr></thead>
+            <tbody id="recRows"></tbody>
+          </table></div>
+        </div>
       </details>
 
       <details class="settings" id="classBox">
@@ -210,8 +258,8 @@
   <!-- 인쇄용 학생별 독서 기록 카드 -->
   <section id="cards" class="cards" aria-hidden="true"></section>
 
-  <script src="js/config.js?v=20261025a"></script>
-  <script src="js/common.js?v=20261025a"></script>
-  <script src="js/admin.js?v=20261025a"></script>
+  <script src="js/config.js?v=20261028a"></script>
+  <script src="js/common.js?v=20261028a"></script>
+  <script src="js/admin.js?v=20261028a"></script>
 </body>
 </html>
