@@ -13,6 +13,8 @@
 
   let books = null;      // null = 아직 안 불러옴
   let level = "all";
+  const PAGE = 60;       // 한 번에 그리는 책 수 (목록이 수백 권이어도 휴대폰에서 가볍게)
+  let limit = PAGE;
 
   // ---------- 탭 ----------
   function setTab(tab, save) {
@@ -106,22 +108,33 @@
     if (sort === "easy") shown.sort((a, b) => a.level - b.level);
     else if (sort === "hard") shown.sort((a, b) => b.level - a.level);
     else if (sort === "popular") shown.sort((a, b) => countOf(b) - countOf(a));
-    listEl.replaceChildren(...shown.map((b) => card(b, countOf(b))));
+    listEl.replaceChildren(...shown.slice(0, limit).map((b) => card(b, countOf(b))));
+    const rest = shown.length - limit;
+    moreBtn.hidden = rest <= 0;
+    if (rest > 0) moreBtn.textContent = "추천도서 더 보기 (" + rest + "권 남음)";
     statusEl.textContent = !books.length ? "아직 등록된 추천도서가 없어요. 곧 선생님들이 채워 줄 거예요!"
       : !shown.length ? "조건에 맞는 추천도서가 없어요."
       : (level !== "all" || cat || q) ? shown.length + "권을 찾았어요." : "";
     statusEl.hidden = !statusEl.textContent;
   }
 
+  const moreBtn = h("button", { class: "btn more-btn", type: "button", hidden: true, onclick: () => {
+    limit += PAGE;
+    render();
+  } });
+  listEl.after(moreBtn);
+  // 조건을 바꾸면 다시 처음 60권부터 보여 줍니다.
+  const refilter = () => { limit = PAGE; render(); };
+
   document.querySelectorAll("[data-level]").forEach((b) => b.addEventListener("click", () => {
     level = b.dataset.level;
     document.querySelectorAll("[data-level]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-    render();
+    refilter();
   }));
   let timer;
-  searchEl.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(render, 150); });
-  catSel.addEventListener("change", render);
-  sortSel.addEventListener("change", render);
+  searchEl.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refilter, 150); });
+  catSel.addEventListener("change", refilter);
+  sortSel.addEventListener("change", refilter);
   // 릴레이 글이 새로 들어오면 '소개한 사람 수'를 고칩니다.
   document.addEventListener("board:loaded", () => { if (!$("#recView").hidden) render(); });
 
