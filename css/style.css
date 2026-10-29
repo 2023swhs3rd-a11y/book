@@ -9,8 +9,8 @@
   --accent-ink: #ffffff;
   --danger: #c63d2f;
   --radius: 22px;
-  --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
-    "Malgun Gothic", "맑은 고딕", system-ui, sans-serif;
+  /* 글꼴은 진로진학부 공통 Pretendard(/assets/site.css) */
+  --font: var(--bon-font, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", "맑은 고딕", system-ui, sans-serif);
 }
 
 * { box-sizing: border-box; }
@@ -499,13 +499,13 @@ dialog.sheet.ask { width: min(420px, calc(100vw - 32px)); }
 .btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn.danger-fill:hover { filter: brightness(1.08); }
 
-/* 아래쪽 버전 · 제작자 정보 */
-.site-footer {
-  max-width: 1400px; margin: 8px auto 0; padding: 18px 24px 28px; border-top: 1px solid var(--line);
-  text-align: center; font-size: 12.5px; color: var(--muted); line-height: 1.7;
-}
-.site-footer p { margin: 0; }
-.site-footer a { color: inherit; }
+/* 진로진학부 공통 경로 줄·바닥글(/assets/site.css): 이 게시판은 밝은 화면만 있으므로 색을 밝은 값으로 고정 */
+.bon-bar, .bon-footer { --bon-card: #ffffff; --bon-line: var(--line); --bon-muted: var(--muted); --bon-text: var(--ink); --bon-brand: #1e3a8a; }
+.bon-bar { --bon-max: 1400px; }
+.bon-bar-in { padding-inline: 24px; }
+
+/* 아래쪽 버전 · 제작자 정보: 모양은 공통 .bon-footer, 폭만 이 게시판에 맞춘다 */
+.site-footer { max-width: 1400px; margin: 8px auto 0; padding: 18px 24px 28px; }
 
 /* 알림 */
 #toast {
@@ -543,6 +543,7 @@ dialog.sheet.ask { width: min(420px, calc(100vw - 32px)); }
   .toolbar .search { grid-column: 1 / -1; }
   .demo-btn, .help-btn { padding: 9px 12px; }
   main { padding: 18px 16px 24px; }
+  .bon-bar-in { padding-inline: 16px; }
   .site-footer { padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); }
 
   .search { display: block; }
