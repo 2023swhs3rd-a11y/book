@@ -131,7 +131,7 @@
       new: (a, b) => (a.created_at < b.created_at) - (a.created_at > b.created_at) || byTitle(a, b),
       easy: (a, b) => a.level - b.level || byTitle(a, b),
       hard: (a, b) => b.level - a.level || byTitle(a, b),
-      popular: (a, b) => countOf(b) - countOf(a) || a.level - b.level || byTitle(a, b),
+      popular: (a, b) => countOf(b) - countOf(a) || byTitle(a, b),
       title: byTitle,
     };
     shown.sort(SORTS[sortSel.value] || SORTS.new);
@@ -139,9 +139,13 @@
     const rest = shown.length - limit;
     moreBtn.hidden = rest <= 0;
     if (rest > 0) moreBtn.textContent = "추천도서 더 보기 (" + rest + "권 남음)";
+    // '많이 소개된 순'은 릴레이에 실제로 소개된 책만 앞으로 옵니다. 몇 권인지 알려 줘야 나머지가 가나다순인 이유가 보입니다.
+    const introduced = sortSel.value === "popular" ? shown.filter((b) => countOf(b) > 0).length : -1;
+    const popularNote = introduced === 0 ? "아직 릴레이에서 소개된 추천도서가 없어서 가나다순으로 보여요."
+      : introduced > 0 ? "릴레이에서 소개된 " + introduced + "권을 먼저 보여 주고, 나머지는 가나다순이에요." : "";
     statusEl.textContent = !books.length ? "아직 등록된 추천도서가 없어요. 곧 선생님들이 채워 줄 거예요!"
       : !shown.length ? "조건에 맞는 추천도서가 없어요."
-      : (level !== "all" || cat || src || q) ? shown.length + "권을 찾았어요." : "";
+      : [(level !== "all" || cat || src || q) ? shown.length + "권을 찾았어요." : "", popularNote].filter(Boolean).join(" ");
     statusEl.hidden = !statusEl.textContent;
   }
 
