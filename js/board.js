@@ -708,8 +708,10 @@
 
   // 최신 글이 왼쪽 위부터 가로로 놓이도록, 가장 짧은 열에 차례로 쌓습니다.
   let lastCards = [];
+  let lastWidth = 0;
   function layout(cards) {
     lastCards = cards;
+    lastWidth = boardEl.clientWidth;
     const n = Math.max(1, Math.floor((boardEl.clientWidth + 24) / 324));
     const cols = Array.from({ length: n }, () => h("div", { class: "col" }));
     boardEl.replaceChildren(...cols);
@@ -720,13 +722,17 @@
       target.append(card);
     }
   }
-  let lastWidth = 0;
-  window.addEventListener("resize", () => {
-    if (boardEl.clientWidth === lastWidth) return;
-    lastWidth = boardEl.clientWidth;
+  // 폭이 바뀌면(창 크기, 태블릿 가로·세로 전환) 열 수를 다시 정합니다.
+  // 추천도서 탭을 보는 동안에는 게시판이 숨겨져 폭이 0이므로 건너뛰고, 다시 보일 때 맞춥니다.
+  function relayout() {
+    const w = boardEl.clientWidth;
+    if (!w || w === lastWidth) return;
+    lastWidth = w;
     layout(lastCards);
     clampCheck();
-  });
+  }
+  if (window.ResizeObserver) new ResizeObserver(relayout).observe(boardEl);
+  else window.addEventListener("resize", relayout);
 
   const moreBtn = h("button", { class: "btn more-btn", type: "button", hidden: true, onclick: () => {
     limit += PAGE;
