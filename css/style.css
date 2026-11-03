@@ -81,11 +81,12 @@ button, input, textarea, select { font: inherit; color: inherit; }
   max-width: 1400px; margin: 0 auto; padding: 14px 24px;
   display: flex; align-items: center; gap: 16px; justify-content: space-between;
 }
-.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 0 1 auto; }
+.brand h1 { white-space: nowrap; }
 .brand-icon { font-size: 32px; }
 .brand h1 { margin: 0; font-size: 22px; line-height: 1.25; letter-spacing: -0.02em; }
 .subtitle { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
-.toolbar { display: flex; gap: 10px; align-items: center; }
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .search input {
   width: 260px; padding: 10px 16px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--card);
@@ -516,6 +517,32 @@ dialog.sheet.ask { width: min(420px, calc(100vw - 32px)); }
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #toast.error { background: var(--danger); }
+
+/* ===== 태블릿·작은 노트북 (641~1100px): 제목 줄과 버튼 줄을 나눠 제목이 세로로 찌그러지지 않게 ===== */
+@media (min-width: 641px) and (max-width: 1100px) {
+  .topbar-inner { flex-wrap: wrap; padding: 12px 20px; gap: 10px 16px; }
+  .toolbar { flex: 1 1 100%; justify-content: flex-start; }
+  .tab-rec .toolbar { flex-basis: auto; justify-content: flex-end; } /* 추천도서 탭은 버튼이 하나뿐이라 제목 옆에 */
+  .toolbar .search { flex: 1 1 220px; }
+  .search input { width: 100%; }
+  main { padding: 20px; }
+}
+/* 화면 높이가 낮을 때(휴대폰·태블릿 가로): 위 바를 고정하면 글 볼 자리가 너무 좁아지므로 함께 스크롤 */
+@media (max-height: 600px) {
+  .board-page .topbar { position: static; }
+  .board-page .subtitle { display: none; }
+}
+@media (max-height: 600px) and (min-width: 641px) {
+  /* 가로로 눕힌 휴대폰: 글쓰기 창의 머리·바닥을 줄여 입력칸이 더 보이게 */
+  dialog.sheet { max-height: calc(100dvh - 16px); }
+  .sheet-head { padding: 8px 12px 6px 20px; }
+  .sheet-foot { padding: 8px 20px calc(8px + env(safe-area-inset-bottom)); }
+}
+/* 손가락으로 쓰는 기기: 누르는 곳을 넉넉하게 */
+@media (pointer: coarse) {
+  .btn { min-height: 40px; }
+  .btn.small { min-height: 34px; }
+}
 
 /* ===== 모바일: 한 줄 배치, 큰 글씨, 아래에서 올라오는 입력창 ===== */
 @media (max-width: 640px) {

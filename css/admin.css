@@ -177,14 +177,7 @@ tr.detail .entry-list li { --bd: var(--line); }
   .filters { grid-template-columns: 1fr 1fr; }
   .filters label:nth-child(2) { grid-column: 1 / -1; order: -1; }
   .filter-actions { grid-column: 1 / -1; }
-}
-@media (max-width: 640px) {
-  .admin-page main { padding-bottom: 40px; }
-  .stats { grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .stat { padding: 10px 12px; border-radius: 12px; }
-  .stat b { font-size: 20px; }
-  .stat span { font-size: 12px; }
-  .filters { padding: 12px; gap: 10px; }
+  /* 태블릿 세로 화면까지는 표가 좁아 글자가 한 자씩 꺾이므로 카드로 보여 줍니다. */
   .admin-table thead { display: none; }
   .admin-table, .admin-table tbody, .admin-table tr, .admin-table td { display: block; width: 100%; }
   .table-wrap { background: transparent; border: 0; }
@@ -200,6 +193,21 @@ tr.detail .entry-list li { --bd: var(--line); }
   .admin-table td.actions { flex-wrap: wrap; gap: 6px; padding-top: 8px; }
   .admin-table td.actions .btn { flex: 1 1 40%; padding: 9px; font-size: 14px; }
   tr.detail td { border-radius: 0 0 14px 14px; display: block; }
+}
+/* 태블릿 가로·작은 노트북: 표는 그대로 두고 칸 안에서 글자가 꺾이지 않게 (넘치면 표만 옆으로 밀어 봄) */
+@media (min-width: 901px) and (max-width: 1280px) {
+  #rows > tr > td:nth-child(-n+2) { white-space: nowrap; }
+  #rows > tr > td:nth-child(3) { min-width: 130px; }
+  #rows > tr > td:nth-child(6), #rows > tr > td:nth-child(7) { min-width: 96px; }
+  #rows > tr > td.actions { white-space: normal; min-width: 300px; }
+}
+@media (max-width: 640px) {
+  .admin-page main { padding-bottom: 40px; }
+  .stats { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat { padding: 10px 12px; border-radius: 12px; }
+  .stat b { font-size: 20px; }
+  .stat span { font-size: 12px; }
+  .filters { padding: 12px; gap: 10px; }
 }
 
 /* 도배 정리 · 작업 기록 */
