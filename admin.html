@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="/assets/site.css?v=1"><!-- 진로진학부 사이트 공통: Pretendard 글꼴·맨 위 경로 줄·바닥글 (2023swhs3rd-a11y.github.io 저장소) -->
   <link rel="stylesheet" href="css/style.css?v=20261029b">
-  <link rel="stylesheet" href="css/admin.css?v=20261029a">
+  <link rel="stylesheet" href="css/admin.css?v=20261103a">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -100,7 +100,8 @@
               <label>출판년도<input name="pub_year" inputmode="numeric" maxlength="4" placeholder="예: 2019"></label>
               <label>분야<select name="category" data-categories><option value="">고르기</option></select></label>
               <label>대상 학년<input name="grade_from" maxlength="20" placeholder="예: 고1부터"></label>
-              <label>출처<input name="source" maxlength="50" placeholder="예: 책따세 2026 여름"></label>
+              <label>출처<input name="source" maxlength="120" placeholder="예: 책따세 2026 여름"></label>
+              <label>원문 링크<input name="link" type="url" maxlength="500" placeholder="https:// 로 시작 (소개글·목록 주소)"></label>
               <label class="wide">추천 이유 (200자)<input name="note" maxlength="200" placeholder="한 줄로 이 책을 권하는 이유"></label>
             </div>
             <fieldset class="rec-score">
@@ -258,8 +259,8 @@
   <!-- 인쇄용 학생별 독서 기록 카드 -->
   <section id="cards" class="cards" aria-hidden="true"></section>
 
-  <script src="js/config.js?v=20261029a"></script>
-  <script src="js/common.js?v=20261029a"></script>
-  <script src="js/admin.js?v=20261029a"></script>
+  <script src="js/config.js?v=20261103a"></script>
+  <script src="js/common.js?v=20261103a"></script>
+  <script src="js/admin.js?v=20261103a"></script>
 </body>
 </html>

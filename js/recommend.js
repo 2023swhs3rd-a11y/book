@@ -9,6 +9,7 @@
   const searchEl = $("#recSearch");
   const catSel = $("#recCat");
   const sortSel = $("#recSort");
+  const srcSel = $("#recSrc");
   const tabs = document.querySelectorAll(".main-tabs [data-tab]");
 
   let books = null;      // null = 아직 안 불러옴
@@ -38,11 +39,27 @@
     statusEl.hidden = false;
     try {
       books = await rpc("get_recommended");
+      fillSources();
       render();
     } catch (e) {
       books = null;
       statusEl.textContent = "추천도서를 불러오지 못했어요: " + e.message;
     }
+  }
+
+  // 한 책이 여러 목록에 실리면 출처가 'A + B' 로 이어져 있습니다.
+  const sourcesOf = (b) => String(b.source || "").split(" + ").map((s) => s.trim()).filter(Boolean);
+
+  // 출처 고르기: 등록된 출처가 두 가지 이상일 때만 보여 줍니다.
+  function fillSources() {
+    const cnt = new Map();
+    for (const b of books) for (const s of sourcesOf(b)) cnt.set(s, (cnt.get(s) || 0) + 1);
+    const list = [...cnt.keys()].sort((a, b) => a.localeCompare(b, "ko"));
+    const keep = srcSel.value;
+    srcSel.replaceChildren(h("option", { value: "" }, "🏷️ 모든 출처"),
+      ...list.map((s) => h("option", { value: s }, s + " (" + cnt.get(s) + ")")));
+    srcSel.value = list.includes(keep) ? keep : "";
+    srcSel.hidden = list.length < 2;
   }
 
   // 이번 학기 릴레이에서 이 책을 소개한 사람 수 (제목이 같으면 같은 책으로 봅니다)
@@ -85,7 +102,9 @@
         h("footer", { class: "rec-foot" },
           h("span", { class: "rec-count" }, count ? "✏️ 이번 학기 " + count + "명이 소개했어요" : "아직 소개한 사람이 없어요"),
           h("button", { class: "btn small primary", type: "button", onclick: () => write(b) }, "✏️ 이 책 소개하기")),
-        b.source ? h("small", { class: "rec-source" }, "출처: " + b.source) : null));
+        (b.source || b.link) ? h("small", { class: "rec-source" },
+          b.source ? "출처: " + b.source : null,
+          b.link ? h("a", { href: b.link, target: "_blank", rel: "noopener noreferrer", class: "rec-link" }, "🔗 원문 보기") : null) : null));
   }
 
   function write(b) {
@@ -99,10 +118,12 @@
     const norm = app ? app.norm : (s) => String(s || "").toLowerCase();
     const q = norm(searchEl.value);
     const cat = catSel.value;
+    const src = srcSel.value;
     const counts = introCounts();
     const countOf = (b) => (counts.get(norm(b.title)) || new Set()).size;
     const shown = books.filter((b) => (level === "all" || String(b.level) === level)
       && (!cat || b.category === cat)
+      && (!src || sourcesOf(b).includes(src))
       && (!q || norm(b.title + b.author).includes(q)));
     // 엑셀로 한꺼번에 넣은 책은 등록 시각과 난이도가 같은 경우가 많아서, 같으면 제목 가나다순으로 잇습니다.
     const byTitle = (a, b) => a.title.localeCompare(b.title, "ko");
@@ -120,7 +141,7 @@
     if (rest > 0) moreBtn.textContent = "추천도서 더 보기 (" + rest + "권 남음)";
     statusEl.textContent = !books.length ? "아직 등록된 추천도서가 없어요. 곧 선생님들이 채워 줄 거예요!"
       : !shown.length ? "조건에 맞는 추천도서가 없어요."
-      : (level !== "all" || cat || q) ? shown.length + "권을 찾았어요." : "";
+      : (level !== "all" || cat || src || q) ? shown.length + "권을 찾았어요." : "";
     statusEl.hidden = !statusEl.textContent;
   }
 
@@ -140,6 +161,7 @@
   let timer;
   searchEl.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(refilter, 150); });
   catSel.addEventListener("change", refilter);
+  srcSel.addEventListener("change", refilter);
   sortSel.addEventListener("change", refilter);
   // 릴레이 글이 새로 들어오면 '소개한 사람 수'를 고칩니다.
   document.addEventListener("board:loaded", () => { if (!$("#recView").hidden) render(); });

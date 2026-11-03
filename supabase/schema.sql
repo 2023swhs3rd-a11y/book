@@ -140,6 +140,14 @@ create table if not exists public.recommended_books (
   created_at  timestamptz not null default now()
 );
 
+-- [12차 업데이트] 추천도서에 '원문 링크'(예: 서울대 아로리 신입생의 책장 소개글)를 붙이고,
+-- 같은 책이 여러 목록에 실리면 출처를 ' + '로 이어 적을 수 있게 출처 길이를 120자로 늘립니다.
+alter table public.recommended_books add column if not exists link text
+  check (link is null or (link ~ '^https://' and char_length(link) <= 500));
+alter table public.recommended_books drop constraint if exists recommended_books_source_check;
+alter table public.recommended_books add constraint recommended_books_source_check
+  check (source is null or char_length(source) <= 120);
+
 -- 모든 테이블은 직접 접근을 막고, 아래 함수(RPC)를 통해서만 읽고 씁니다.
 alter table public.posts        enable row level security;
 alter table public.entries      enable row level security;
@@ -795,7 +803,7 @@ end $$;
 -- DB 구조의 버전. schema.sql 을 바꿀 때마다 1씩 올리고 js/common.js 의 SCHEMA_VERSION 도 같이 올립니다.
 -- 화면은 이 값이 더 작으면 "schema.sql 을 다시 실행해 주세요" 라고 알려 줍니다.
 create or replace function public.schema_version()
-returns int language sql immutable as $$ select 11 $$;
+returns int language sql immutable as $$ select 12 $$;
 
 -- 게시판 맨 위 공지와 이달의 주제 (학생 화면에서 읽음)
 create or replace function public.get_settings()
@@ -962,7 +970,7 @@ set search_path = public as $$
   select coalesce(json_agg(json_build_object(
            'id', id, 'title', title, 'author', author, 'publisher', publisher, 'pub_year', pub_year,
            'isbn', isbn, 'thumbnail', thumbnail, 'category', category, 'level', level,
-           'grade_from', grade_from, 'note', note, 'source', source, 'created_at', created_at)
+           'grade_from', grade_from, 'note', note, 'source', source, 'link', link, 'created_at', created_at)
          order by created_at desc, id desc), '[]'::json)
     from public.recommended_books
 $$;
@@ -982,7 +990,8 @@ begin
   r.level := case when b->>'level' in ('1', '2', '3') then (b->>'level')::smallint else 2 end;
   r.grade_from := _clean(b->>'grade_from', 20);
   r.note := _clean(b->>'note', 200);
-  r.source := _clean(b->>'source', 50);
+  r.source := _clean(b->>'source', 120);
+  r.link := case when coalesce(b->>'link', '') ~ '^https://[^\s<>"]+$' and char_length(b->>'link') <= 500 then b->>'link' end;
   return r;
 end $$;
 
@@ -997,29 +1006,35 @@ begin
   r := _rec_row(p_book);
   if r.title is null or r.author is null then return json_build_object('error', 'MISSING_FIELD'); end if;
   if rid is null then
-    insert into public.recommended_books (title, author, publisher, pub_year, isbn, thumbnail, category, level, grade_from, note, source)
-    values (r.title, r.author, r.publisher, r.pub_year, r.isbn, r.thumbnail, r.category, r.level, r.grade_from, r.note, r.source)
+    insert into public.recommended_books (title, author, publisher, pub_year, isbn, thumbnail, category, level, grade_from, note, source, link)
+    values (r.title, r.author, r.publisher, r.pub_year, r.isbn, r.thumbnail, r.category, r.level, r.grade_from, r.note, r.source, r.link)
     returning id into rid;
     perform _log('추천도서 추가', r.title || ' / ' || r.author);
   else
     update public.recommended_books
        set title = r.title, author = r.author, publisher = r.publisher, pub_year = r.pub_year, isbn = r.isbn,
            thumbnail = r.thumbnail, category = r.category, level = r.level, grade_from = r.grade_from,
-           note = r.note, source = r.source
+           note = r.note, source = r.source, link = r.link
      where id = rid;
     perform _log('추천도서 수정', r.title || ' / ' || r.author);
   end if;
   return json_build_object('ok', true, 'id', rid);
 end $$;
 
--- 엑셀 일괄 등록: 제목+저자가 이미 있는 책은 건너뜁니다. {"ok": true, "added": n, "skipped": n}
+-- 엑셀 일괄 등록: 제목+저자가 이미 있는 책은 새로 넣지 않고, 새 출처·추천 이유·원문 링크만 덧붙입니다.
+-- (덧붙일 것이 없으면 건너뜀) {"ok": true, "added": n, "merged": n, "skipped": n}
 create or replace function public.admin_import_recommended(p_pw text, p_books jsonb)
 returns json language plpgsql security definer
 set search_path = public as $$
 declare err text := public._admin_check(p_pw);
         b jsonb;
         r public.recommended_books;
+        x public.recommended_books;
+        new_source text;
+        new_note text;
+        new_link text;
         added int := 0;
+        merged int := 0;
         skipped int := 0;
 begin
   if err is not null then return json_build_object('error', err); end if;
@@ -1028,19 +1043,41 @@ begin
   end if;
   for b in select * from jsonb_array_elements(p_books) loop
     r := _rec_row(b);
-    if r.title is null or r.author is null
-       or exists (select 1 from public.recommended_books x
-                   where regexp_replace(lower(x.title), '\s', '', 'g') = regexp_replace(lower(r.title), '\s', '', 'g')
-                     and regexp_replace(lower(x.author), '\s', '', 'g') = regexp_replace(lower(r.author), '\s', '', 'g')) then
+    if r.title is null or r.author is null then
       skipped := skipped + 1;
       continue;
     end if;
-    insert into public.recommended_books (title, author, publisher, pub_year, isbn, thumbnail, category, level, grade_from, note, source)
-    values (r.title, r.author, r.publisher, r.pub_year, r.isbn, r.thumbnail, r.category, r.level, r.grade_from, r.note, r.source);
-    added := added + 1;
+    select * into x from public.recommended_books y
+     where regexp_replace(lower(y.title), '\s', '', 'g') = regexp_replace(lower(r.title), '\s', '', 'g')
+       and regexp_replace(lower(y.author), '\s', '', 'g') = regexp_replace(lower(r.author), '\s', '', 'g')
+     order by y.id limit 1;
+    if not found then
+      insert into public.recommended_books (title, author, publisher, pub_year, isbn, thumbnail, category, level, grade_from, note, source, link)
+      values (r.title, r.author, r.publisher, r.pub_year, r.isbn, r.thumbnail, r.category, r.level, r.grade_from, r.note, r.source, r.link);
+      added := added + 1;
+      continue;
+    end if;
+    -- 이미 있는 책: 겹치지 않는 정보만 이어 붙입니다.
+    new_source := case
+      when r.source is null or position(r.source in coalesce(x.source, '')) > 0 then x.source
+      when x.source is null then r.source
+      when char_length(x.source || ' + ' || r.source) <= 120 then x.source || ' + ' || r.source
+      else x.source end;
+    new_note := case
+      when r.note is null or position(r.note in coalesce(x.note, '')) > 0 then x.note
+      when x.note is null then r.note
+      else left(x.note || ' / ' || r.note, 200) end;
+    new_link := coalesce(x.link, r.link);
+    if new_source is not distinct from x.source and new_note is not distinct from x.note
+       and new_link is not distinct from x.link then
+      skipped := skipped + 1;
+      continue;
+    end if;
+    update public.recommended_books set source = new_source, note = new_note, link = new_link where id = x.id;
+    merged := merged + 1;
   end loop;
-  perform _log('추천도서 일괄 등록', added || '권 추가, ' || skipped || '권 건너뜀');
-  return json_build_object('ok', true, 'added', added, 'skipped', skipped);
+  perform _log('추천도서 일괄 등록', added || '권 추가, ' || merged || '권 정보 덧붙임, ' || skipped || '권 건너뜀');
+  return json_build_object('ok', true, 'added', added, 'merged', merged, 'skipped', skipped);
 end $$;
 
 create or replace function public.admin_delete_recommended(p_pw text, p_id bigint)

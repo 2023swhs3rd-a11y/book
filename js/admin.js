@@ -731,7 +731,8 @@
           h("td", { "data-label": "분야" }, b.category || "–"),
           h("td", { "data-label": "난이도" }, LEVELS[b.level]),
           h("td", { "data-label": "대상" }, b.grade_from || "–"),
-          h("td", { "data-label": "출처" }, b.source || "–"),
+          h("td", { "data-label": "출처" }, b.source || "–",
+            b.link ? h("a", { href: b.link, target: "_blank", rel: "noopener noreferrer", title: b.link }, " 🔗") : null),
           h("td", { class: "actions" },
             h("button", { class: "btn small", type: "button", onclick: () => editRec(b) }, "고치기"),
             h("button", { class: "btn small danger", type: "button", onclick: async () => {
@@ -756,7 +757,7 @@
 
   function editRec(b) {
     recForm.reset();
-    for (const k of ["id", "title", "author", "publisher", "pub_year", "isbn", "thumbnail", "category", "grade_from", "note", "source"]) {
+    for (const k of ["id", "title", "author", "publisher", "pub_year", "isbn", "thumbnail", "category", "grade_from", "note", "source", "link"]) {
       rf[k].value = b[k] ?? "";
     }
     rf.level.value = String(b.level);
@@ -804,8 +805,9 @@
   recForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const book = {};
-    for (const k of ["id", "title", "author", "publisher", "pub_year", "isbn", "thumbnail", "category", "level", "grade_from", "note", "source"]) book[k] = rf[k].value.trim();
+    for (const k of ["id", "title", "author", "publisher", "pub_year", "isbn", "thumbnail", "category", "level", "grade_from", "note", "source", "link"]) book[k] = rf[k].value.trim();
     if (!book.title || !book.author) return toast("제목과 저자는 꼭 넣어 주세요.", true);
+    if (book.link && !/^https:\/\/\S+$/.test(book.link)) return toast("원문 링크는 https:// 로 시작하는 주소로 넣어 주세요.", true);
     if (book.pub_year && !/^\d{4}$/.test(book.pub_year)) return toast("출판년도는 네 자리 숫자로 넣어 주세요.", true);
     try {
       await rpc("admin_save_recommended", { p_pw: pw, p_book: book });
@@ -816,14 +818,16 @@
   });
 
   // 엑셀 양식과 일괄 등록
-  const REC_COLS = ["제목", "저자", "출판사", "출판년도", "분야", "난이도", "대상 학년", "추천 이유", "출처"];
+  const REC_COLS = ["제목", "저자", "출판사", "출판년도", "분야", "난이도", "대상 학년", "추천 이유", "출처", "원문 링크"];
   $("#recTemplate").addEventListener("click", async () => {
     try {
       const XLSX = await loadXlsx();
       const ws = XLSX.utils.json_to_sheet([{ "제목": "데미안", "저자": "헤르만 헤세", "출판사": "민음사", "출판년도": 2000,
-        "분야": "소설", "난이도": "보통", "대상 학년": "중3부터", "추천 이유": "나를 찾아가는 성장 이야기", "출처": "예시 (지우고 쓰세요)" }], { header: REC_COLS });
-      ws["!cols"] = [24, 14, 12, 8, 12, 8, 10, 40, 18].map((w) => ({ wch: w }));
+        "분야": "소설", "난이도": "보통", "대상 학년": "중3부터", "추천 이유": "나를 찾아가는 성장 이야기", "출처": "예시 (지우고 쓰세요)", "원문 링크": "" }], { header: REC_COLS });
+      ws["!cols"] = [24, 14, 12, 8, 12, 8, 10, 40, 18, 40].map((w) => ({ wch: w }));
       const guide = XLSX.utils.aoa_to_sheet([["항목", "쓰는 법"], ["분야", CATEGORIES.join(", ")], ["난이도", "입문, 보통, 도전 (또는 1, 2, 3)"],
+        ["원문 링크", "https:// 로 시작하는 소개글·목록 주소. 학생 화면에 '🔗 원문 보기'로 나와요."],
+        ["이미 있는 책", "제목·저자가 같은 책은 새로 넣지 않고 출처·추천 이유·원문 링크만 덧붙여요."],
         ["제목·저자", "꼭 써야 해요. 나머지는 비워도 돼요."]]);
       guide["!cols"] = [{ wch: 10 }, { wch: 80 }];
       const wb = XLSX.utils.book_new();
@@ -847,17 +851,19 @@
         pub_year: String(r["출판년도"]).trim(), category: String(r["분야"]).trim(),
         level: lv[String(r["난이도"]).replace(/[^가-힣0-9]/g, "")] || 2,
         grade_from: String(r["대상 학년"]).trim(), note: String(r["추천 이유"]).trim(), source: String(r["출처"]).trim(),
+        link: String(r["원문 링크"] ?? "").trim(),
       })).filter((b) => b.title && b.author && !b.source.startsWith("예시"));
       if (!books.length) return toast("제목·저자가 있는 줄이 없어요. 양식의 첫 줄(제목, 저자 …)을 지켜 주세요.", true);
       if (!(await ask({ title: "📚 추천도서 일괄 등록", okText: "등록",
-        message: "‘" + file.name + "’에서 " + books.length + "권을 찾았어요. 등록할까요? (이미 있는 책은 건너뛰어요)" }))) return;
+        message: "‘" + file.name + "’에서 " + books.length + "권을 찾았어요. 등록할까요? (이미 있는 책은 출처·추천 이유·원문 링크만 덧붙여요)" }))) return;
       // 서버는 한 번에 500권까지 받으므로 나눠서 보냅니다.
-      let added = 0, skipped = 0;
+      let added = 0, merged = 0, skipped = 0;
       for (let i = 0; i < books.length; i += 500) {
         const res = await rpc("admin_import_recommended", { p_pw: pw, p_books: books.slice(i, i + 500) });
-        added += res.added; skipped += res.skipped;
+        added += res.added; merged += res.merged || 0; skipped += res.skipped;
       }
-      toast(added + "권을 넣었어요." + (skipped ? " (" + skipped + "권은 이미 있거나 빈칸이라 건너뜀)" : ""));
+      toast(added + "권을 넣었어요." + (merged ? " 이미 있던 " + merged + "권에는 출처·정보를 덧붙였어요." : "")
+        + (skipped ? " (" + skipped + "권은 덧붙일 것이 없거나 빈칸이라 건너뜀)" : ""));
       loadRec();
     } catch (ex) { toast(ex.message, true); }
   });
