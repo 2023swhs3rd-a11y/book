@@ -899,6 +899,12 @@
   // 남길 책: 표지·출판사·추천 이유 같은 정보가 많은 책, 같으면 먼저 등록한 책
   const richness = (b) => ["thumbnail", "publisher", "pub_year", "note", "link", "category"].filter((k) => b[k]).length;
   async function findDups() {
+    const btn = $("#recDupBtn");
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.textContent = "🧹 찾는 중…";
+    dupBox.replaceChildren(h("p", { class: "hint" }, "같은 책을 찾고 있어요…"));
+    dupBox.hidden = false;
     try {
       const groups = await rpc("admin_find_dup_recommended", { p_pw: pw });
       if (!groups.length) {
@@ -945,7 +951,13 @@
           h("button", { class: "btn small", type: "button", onclick: () => { dupBox.hidden = true; } }, "닫기")),
         ...groups.map(row));
       dupBox.hidden = false;
-    } catch (e) { toast(e.message, true); }
+    } catch (e) {
+      dupBox.replaceChildren(h("p", { class: "hint" }, "⚠️ 중복을 찾지 못했어요: " + e.message));
+      toast(e.message, true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "🧹 중복 찾기";
+    }
   }
   $("#recDupBtn").addEventListener("click", findDups);
 
