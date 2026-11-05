@@ -79,13 +79,29 @@
 
   // ---------- 그리기 ----------
   function cover(b) {
-    const box = h("div", { class: "rec-cover" + (b.thumbnail ? "" : " empty") });
-    if (b.thumbnail) {
-      const img = h("img", { src: b.thumbnail, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
-      img.addEventListener("error", () => { img.remove(); box.classList.add("empty"); box.append(h("span", null, "📖")); });
-      box.append(img);
-    } else box.append(h("span", null, "📖"));
+    if (!b.thumbnail) return h("div", { class: "rec-cover empty" }, h("span", null, "📖"));
+    // 표지가 있으면 눌러서 크게 볼 수 있습니다.
+    const box = h("button", { class: "rec-cover", type: "button", title: "표지 크게 보기", "aria-label": "『" + b.title + "』 표지 크게 보기",
+      onclick: () => showCover(b) });
+    const img = h("img", { src: b.thumbnail, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+    img.addEventListener("error", () => { box.replaceWith(h("div", { class: "rec-cover empty" }, h("span", null, "📖"))); });
+    box.append(img);
     return box;
+  }
+
+  // 표지 크게 보기: 카카오 표지는 주소의 크기(R120x174)를 바꾸면 더 큰 그림을 받을 수 있습니다.
+  function showCover(b) {
+    const big = /\/thumb\/R\d+x\d+/.test(b.thumbnail) ? b.thumbnail.replace(/\/thumb\/R\d+x\d+/, "/thumb/R400x580") : b.thumbnail;
+    const img = h("img", { src: big, alt: "『" + b.title + "』 표지", referrerpolicy: "no-referrer" });
+    img.addEventListener("error", () => { if (img.src !== b.thumbnail) img.src = b.thumbnail; }, { once: true });
+    const dlg = h("dialog", { class: "cover-view", "aria-label": "표지 크게 보기" },
+      h("button", { class: "icon-btn cover-close", type: "button", "aria-label": "닫기", onclick: () => dlg.close() }, "✕"),
+      img,
+      h("p", null, h("b", null, b.title), h("br"), [b.author, b.publisher].filter(Boolean).join(" · ")));
+    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
+    dlg.addEventListener("close", () => dlg.remove());
+    document.body.append(dlg);
+    dlg.showModal();
   }
 
   function card(b, count) {

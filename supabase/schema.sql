@@ -803,7 +803,7 @@ end $$;
 -- DB 구조의 버전. schema.sql 을 바꿀 때마다 1씩 올리고 js/common.js 의 SCHEMA_VERSION 도 같이 올립니다.
 -- 화면은 이 값이 더 작으면 "schema.sql 을 다시 실행해 주세요" 라고 알려 줍니다.
 create or replace function public.schema_version()
-returns int language sql immutable as $$ select 12 $$;
+returns int language sql immutable as $$ select 13 $$;
 
 -- 게시판 맨 위 공지와 이달의 주제 (학생 화면에서 읽음)
 create or replace function public.get_settings()
@@ -869,6 +869,32 @@ begin
 end $$;
 
 -- 학생이 비밀번호를 잊었을 때 새 4자리 비밀번호로 바꿔 줍니다.
+-- [13차] 별명 고치기: 같은 학번(교사는 부서)·같은 별명으로 쓴 게시물과 댓글을 모두 새 별명으로 바꿉니다.
+-- 바꾼 뒤에는 이어 쓰기·수정할 때 새 별명을 넣어야 합니다. {"ok": true, "posts": n, "comments": n}
+create or replace function public.admin_rename_author(p_pw text, p_student_no text, p_old text, p_new text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+        nm text := _clean(p_new, 20);
+        np int;
+        nc int;
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  if nm is null or p_old is null or p_student_no is null then return json_build_object('error', 'MISSING_FIELD'); end if;
+  if _has_banned(nm) then return json_build_object('error', 'BANNED_WORD'); end if;
+  update public.posts set author_name = nm
+   where lower(student_no) = lower(p_student_no) and author_name = p_old;
+  get diagnostics np = row_count;
+  update public.comments set author_name = nm
+   where lower(student_no) = lower(p_student_no) and author_name = p_old;
+  get diagnostics nc = row_count;
+  -- 댓글만 바뀐 게시물도 학생 화면이 다시 받도록 표시합니다.
+  update public.posts set changed_at = now()
+   where id in (select post_id from public.comments where lower(student_no) = lower(p_student_no) and author_name = nm);
+  perform _log('별명 수정', p_student_no || ' ' || p_old || ' → ' || nm || ' (게시물 ' || np || ', 댓글 ' || nc || ')');
+  return json_build_object('ok', true, 'posts', np, 'comments', nc);
+end $$;
+
 create or replace function public.admin_reset_pin(p_pw text, p_post_id bigint, p_new_pin text)
 returns json language plpgsql security definer
 set search_path = public, extensions as $$
@@ -964,6 +990,29 @@ end $$;
 -- ---------------------------------------------------------------------
 -- 추천도서
 -- ---------------------------------------------------------------------
+-- [13차] 같은 책 알아보기: 띄어쓰기·문장부호·괄호 안 글(예: '(개정판)', '(지은이)')을 빼고 비교합니다.
+-- 저자는 첫 번째 저자만 봅니다(예: '유발 하라리 (지은이), 조현욱 (옮긴이)' → '유발하라리').
+create or replace function public._book_key(p text)
+returns text language sql immutable as $$
+  select regexp_replace(
+           regexp_replace(lower(coalesce(p, '')), '\([^)]*\)|\[[^]]*\]', '', 'g'),
+           '[^0-9a-z가-힣ㄱ-ㅎ]', '', 'g')
+$$;
+create or replace function public._author_key(p text)
+returns text language sql immutable as $$
+  select regexp_replace(
+           _book_key(split_part(regexp_replace(coalesce(p, ''), '\s*(,|/|;|&| 외| 등)\s*', ',', 'g'), ',', 1)),
+           '(지음|옮김|엮음|편저|지은이|글|그림|저|역|편)$', '')
+$$;
+-- 제목이 같고, 저자가 같거나 한쪽이 다른 쪽을 품으면(예: '헤세'와 '헤르만헤세') 같은 책으로 봅니다.
+create or replace function public._same_book(t1 text, a1 text, t2 text, a2 text)
+returns boolean language sql immutable as $$
+  select _book_key(t1) = _book_key(t2) and _book_key(t1) <> ''
+     and (_author_key(a1) = _author_key(a2)
+          or (_author_key(a1) <> '' and _author_key(a2) <> ''
+              and (position(_author_key(a1) in _author_key(a2)) > 0 or position(_author_key(a2) in _author_key(a1)) > 0)))
+$$;
+
 create or replace function public.get_recommended()
 returns json language sql stable security definer
 set search_path = public as $$
@@ -1048,8 +1097,7 @@ begin
       continue;
     end if;
     select * into x from public.recommended_books y
-     where regexp_replace(lower(y.title), '\s', '', 'g') = regexp_replace(lower(r.title), '\s', '', 'g')
-       and regexp_replace(lower(y.author), '\s', '', 'g') = regexp_replace(lower(r.author), '\s', '', 'g')
+     where _book_key(y.title) = _book_key(r.title) and _same_book(y.title, y.author, r.title, r.author)
      order by y.id limit 1;
     if not found then
       insert into public.recommended_books (title, author, publisher, pub_year, isbn, thumbnail, category, level, grade_from, note, source, link)
@@ -1078,6 +1126,96 @@ begin
   end loop;
   perform _log('추천도서 일괄 등록', added || '권 추가, ' || merged || '권 정보 덧붙임, ' || skipped || '권 건너뜀');
   return json_build_object('ok', true, 'added', added, 'merged', merged, 'skipped', skipped);
+end $$;
+
+-- 중복 찾기: 제목이 같은 책 묶음. same_author 가 true 면 저자도 같아 바로 합쳐도 되는 묶음입니다.
+create or replace function public.admin_find_dup_recommended(p_pw text)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  return (
+    select coalesce(json_agg(json_build_object(
+             'same_author', g.same_author,
+             'books', (select json_agg(json_build_object('id', b.id, 'title', b.title, 'author', b.author, 'publisher', b.publisher,
+                                                         'pub_year', b.pub_year, 'category', b.category, 'level', b.level,
+                                                         'source', b.source, 'note', b.note, 'thumbnail', b.thumbnail, 'link', b.link)
+                                       order by b.id)
+                         from public.recommended_books b where _book_key(b.title) = g.k))
+           order by g.k), '[]'::json)
+      from (select t.k, bool_and(_same_book(t.title, t.author, f.title, f.author)) as same_author
+              from (select _book_key(title) as k, id, title, author from public.recommended_books) t
+              join lateral (select title, author from public.recommended_books y
+                             where _book_key(y.title) = t.k order by y.id limit 1) f on true
+             group by t.k
+            having count(*) > 1) g);
+end $$;
+
+-- 합치기: p_keep 한 권을 남기고 p_ids 의 책은 지웁니다. 남는 책의 빈칸은 지우는 책의 정보로 채우고,
+-- 출처는 ' + ', 추천 이유는 ' / ' 로 이어 붙입니다. {"ok": true, "merged": 지운 권수}
+create or replace function public.admin_merge_recommended(p_pw text, p_keep bigint, p_ids bigint[])
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+        k public.recommended_books;
+        x public.recommended_books;
+        n int := 0;
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  select * into k from public.recommended_books where id = p_keep;
+  if not found then return json_build_object('error', 'NOT_FOUND'); end if;
+  for x in select * from public.recommended_books where id = any(p_ids) and id <> p_keep order by id loop
+    k.publisher := coalesce(k.publisher, x.publisher);
+    k.pub_year := coalesce(k.pub_year, x.pub_year);
+    k.isbn := coalesce(k.isbn, x.isbn);
+    k.thumbnail := coalesce(k.thumbnail, x.thumbnail);
+    k.category := coalesce(k.category, x.category);
+    k.grade_from := coalesce(k.grade_from, x.grade_from);
+    k.link := coalesce(k.link, x.link);
+    if x.source is not null and position(x.source in coalesce(k.source, '')) = 0 then
+      k.source := case when k.source is null then x.source
+                       when char_length(k.source || ' + ' || x.source) <= 120 then k.source || ' + ' || x.source
+                       else k.source end;
+    end if;
+    if x.note is not null and position(x.note in coalesce(k.note, '')) = 0 then
+      k.note := case when k.note is null then x.note else left(k.note || ' / ' || x.note, 200) end;
+    end if;
+    delete from public.recommended_books where id = x.id;
+    n := n + 1;
+  end loop;
+  update public.recommended_books
+     set publisher = k.publisher, pub_year = k.pub_year, isbn = k.isbn, thumbnail = k.thumbnail, category = k.category,
+         grade_from = k.grade_from, link = k.link, source = k.source, note = k.note
+   where id = p_keep;
+  if n > 0 then perform _log('추천도서 중복 합치기', k.title || ' / ' || k.author || ' (' || n || '권 합침)'); end if;
+  return json_build_object('ok', true, 'merged', n);
+end $$;
+
+-- 표지 채우기: [{"id": 1, "isbn": "...", "thumbnail": "https://..."}] 를 받아 표지가 비어 있는 책에만 넣습니다.
+create or replace function public.admin_set_rec_covers(p_pw text, p_covers jsonb)
+returns json language plpgsql security definer
+set search_path = public as $$
+declare err text := public._admin_check(p_pw);
+        c jsonb;
+        n int := 0;
+        cnt int;
+begin
+  if err is not null then return json_build_object('error', err); end if;
+  if jsonb_typeof(p_covers) <> 'array' or jsonb_array_length(p_covers) > 500 then
+    return json_build_object('error', 'MISSING_FIELD');
+  end if;
+  for c in select * from jsonb_array_elements(p_covers) loop
+    if coalesce(c->>'thumbnail', '') !~ '^https://' or char_length(c->>'thumbnail') > 500 then continue; end if;
+    update public.recommended_books
+       set thumbnail = c->>'thumbnail',
+           isbn = coalesce(isbn, case when coalesce(c->>'isbn', '') ~ '^[0-9X]{10,13}$' then c->>'isbn' end)
+     where id = nullif(c->>'id', '')::bigint and thumbnail is null;
+    get diagnostics cnt = row_count;
+    n := n + cnt;
+  end loop;
+  if n > 0 then perform _log('추천도서 표지 채우기', n || '권'); end if;
+  return json_build_object('ok', true, 'updated', n);
 end $$;
 
 create or replace function public.admin_delete_recommended(p_pw text, p_id bigint)
@@ -1144,7 +1282,11 @@ grant execute on function
   public.admin_get_log(text),
   public.admin_save_recommended(text, jsonb),
   public.admin_import_recommended(text, jsonb),
-  public.admin_delete_recommended(text, bigint)
+  public.admin_delete_recommended(text, bigint),
+  public.admin_find_dup_recommended(text),
+  public.admin_merge_recommended(text, bigint, bigint[]),
+  public.admin_set_rec_covers(text, jsonb),
+  public.admin_rename_author(text, text, text, text)
 to anon, authenticated;
 
 -- ---------------------------------------------------------------------
