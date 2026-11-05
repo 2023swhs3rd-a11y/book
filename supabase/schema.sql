@@ -803,7 +803,7 @@ end $$;
 -- DB 구조의 버전. schema.sql 을 바꿀 때마다 1씩 올리고 js/common.js 의 SCHEMA_VERSION 도 같이 올립니다.
 -- 화면은 이 값이 더 작으면 "schema.sql 을 다시 실행해 주세요" 라고 알려 줍니다.
 create or replace function public.schema_version()
-returns int language sql immutable as $$ select 13 $$;
+returns int language sql immutable as $$ select 14 $$;
 
 -- 게시판 맨 위 공지와 이달의 주제 (학생 화면에서 읽음)
 create or replace function public.get_settings()
@@ -1013,6 +1013,9 @@ returns boolean language sql immutable as $$
               and (position(_author_key(a1) in _author_key(a2)) > 0 or position(_author_key(a2) in _author_key(a1)) > 0)))
 $$;
 
+-- 엑셀 등록 때 같은 책을 빨리 찾도록 제목 열쇠에 색인을 둡니다.
+create index if not exists recommended_books_key_idx on public.recommended_books (public._book_key(title));
+
 create or replace function public.get_recommended()
 returns json language sql stable security definer
 set search_path = public as $$
@@ -1135,21 +1138,20 @@ set search_path = public as $$
 declare err text := public._admin_check(p_pw);
 begin
   if err is not null then return json_build_object('error', err); end if;
+  -- 책마다 비교 열쇠를 한 번만 계산합니다(책이 많아도 빨리 끝나도록).
   return (
+    with t as (select b.*, _book_key(b.title) as k from public.recommended_books b),
+         g as (select k from t group by k having count(*) > 1),
+         f as (select distinct on (t.k) t.k, t.title, t.author from t join g using (k) order by t.k, t.id)
     select coalesce(json_agg(json_build_object(
-             'same_author', g.same_author,
-             'books', (select json_agg(json_build_object('id', b.id, 'title', b.title, 'author', b.author, 'publisher', b.publisher,
-                                                         'pub_year', b.pub_year, 'category', b.category, 'level', b.level,
-                                                         'source', b.source, 'note', b.note, 'thumbnail', b.thumbnail, 'link', b.link)
-                                       order by b.id)
-                         from public.recommended_books b where _book_key(b.title) = g.k))
-           order by g.k), '[]'::json)
-      from (select t.k, bool_and(_same_book(t.title, t.author, f.title, f.author)) as same_author
-              from (select _book_key(title) as k, id, title, author from public.recommended_books) t
-              join lateral (select title, author from public.recommended_books y
-                             where _book_key(y.title) = t.k order by y.id limit 1) f on true
-             group by t.k
-            having count(*) > 1) g);
+             'same_author', (select bool_and(_same_book(x.title, x.author, f.title, f.author)) from t x where x.k = f.k),
+             'books', (select json_agg(json_build_object('id', x.id, 'title', x.title, 'author', x.author, 'publisher', x.publisher,
+                                                         'pub_year', x.pub_year, 'category', x.category, 'level', x.level,
+                                                         'source', x.source, 'note', x.note, 'thumbnail', x.thumbnail, 'link', x.link)
+                                       order by x.id)
+                         from t x where x.k = f.k))
+           order by f.k), '[]'::json)
+      from f);
 end $$;
 
 -- 합치기: p_keep 한 권을 남기고 p_ids 의 책은 지웁니다. 남는 책의 빈칸은 지우는 책의 정보로 채우고,
