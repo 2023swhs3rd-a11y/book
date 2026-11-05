@@ -249,3 +249,14 @@ tr.detail .entry-list li { --bd: var(--line); }
 @media (max-width: 480px) {
   .rec-grid, .rec-score { grid-template-columns: 1fr; }
 }
+
+/* 추천도서 중복 정리 */
+.rec-dup { border: 1px solid var(--line); border-radius: 14px; background: #fffaf2; padding: 12px; margin: 0 0 12px; display: grid; gap: 10px; }
+.rec-dup .dup-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rec-dup .dup-head b { margin-right: auto; }
+.dup-group { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; justify-items: start; }
+.dup-group.warn { border-color: #f1c27d; }
+.dup-group .hint { margin: 0; }
+.dup-book { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; cursor: pointer; }
+.dup-book input { margin-top: 3px; }
+.dup-book small { display: block; color: var(--muted); }

@@ -9,8 +9,8 @@
   <link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="/assets/site.css?v=1"><!-- 진로진학부 사이트 공통: Pretendard 글꼴·맨 위 경로 줄·바닥글 (2023swhs3rd-a11y.github.io 저장소) -->
-  <link rel="stylesheet" href="css/style.css?v=20261103c">
-  <link rel="stylesheet" href="css/admin.css?v=20261103c">
+  <link rel="stylesheet" href="css/style.css?v=20261106a">
+  <link rel="stylesheet" href="css/admin.css?v=20261106a">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -122,8 +122,15 @@
             <b>엑셀로 한꺼번에 등록</b>
             <button class="btn small" type="button" id="recTemplate">⬇ 양식 내려받기</button>
             <label class="btn small">📂 파일 올리기<input type="file" id="recFile" accept=".xlsx,.xls,.csv" hidden></label>
-            <span class="hint">제목·저자가 이미 있는 책은 건너뛰어요. 표지는 나중에 [고치기] → [🔎 찾기]로 넣을 수 있어요.</span>
+            <span class="hint">제목·저자가 이미 있는 책은 새로 넣지 않고 출처·추천 이유·원문 링크만 덧붙여요.</span>
           </div>
+          <div class="rec-import">
+            <b>정리</b>
+            <button class="btn small" type="button" id="recDupBtn">🧹 중복 찾기</button>
+            <button class="btn small" type="button" id="recCoverBtn">🖼 표지 자동 채우기</button>
+            <span class="hint" id="recCoverHint">표지가 없는 책을 카카오 책 검색으로 찾아 넣어요. 제목·저자가 맞는 책만 넣어요.</span>
+          </div>
+          <div id="recDup" class="rec-dup" hidden></div>
           <div class="table-wrap"><table class="admin-table rec-table">
             <thead><tr><th>책</th><th>분야</th><th>난이도</th><th>대상</th><th>출처</th><th>관리</th></tr></thead>
             <tbody id="recRows"></tbody>
@@ -259,8 +266,8 @@
   <!-- 인쇄용 학생별 독서 기록 카드 -->
   <section id="cards" class="cards" aria-hidden="true"></section>
 
-  <script src="js/config.js?v=20261103c"></script>
-  <script src="js/common.js?v=20261103c"></script>
-  <script src="js/admin.js?v=20261103c"></script>
+  <script src="js/config.js?v=20261106a"></script>
+  <script src="js/common.js?v=20261106a"></script>
+  <script src="js/admin.js?v=20261106a"></script>
 </body>
 </html>

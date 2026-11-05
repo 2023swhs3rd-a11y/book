@@ -311,6 +311,21 @@
     } catch (e) { toast(e.message, true); }
   });
 
+  // 별명 고치기: 같은 학번·별명으로 쓴 게시물과 댓글을 모두 바꿉니다.
+  async function renameAuthor(sno, oldName) {
+    const nm = await ask({ title: "✏️ 별명 고치기", okText: "바꾸기",
+      message: sno + " ‘" + oldName + "’ 님이 쓴 게시물과 댓글의 별명을 모두 바꿔요. 바꾼 뒤 이어 쓰기·수정할 때는 새 별명을 넣어야 해요.",
+      input: { value: oldName, maxlength: 20, placeholder: "새 별명 (20자까지)" } });
+    if (nm == null) return;
+    const v = nm.trim();
+    if (!v || v === oldName) return;
+    try {
+      const res = await rpc("admin_rename_author", { p_pw: pw, p_student_no: sno, p_old: oldName, p_new: v });
+      toast("‘" + v + "’(으)로 바꿨어요. 게시물 " + res.posts + "개, 댓글 " + res.comments + "개");
+      await reload();
+    } catch (e) { toast(e.message, true); }
+  }
+
   function postRow({ post: p, entries }) {
     const last = p.entries[p.entries.length - 1];
     const open = expanded.has(p.id);
@@ -344,6 +359,7 @@
             input: { inputmode: "numeric", maxlength: 4, placeholder: "숫자 4자리" }, okText: "바꾸기" });
           if (pin != null) act("admin_reset_pin", { p_post_id: p.id, p_new_pin: pin.trim() }, "비밀번호를 " + pin.trim() + " 로 바꿨어요.");
         } }, "비번 초기화"),
+        h("button", { class: "btn small", type: "button", onclick: () => renameAuthor(p.student_no, p.author_name) }, "✏️ 별명"),
         h("button", { class: "btn small danger", type: "button", onclick: async () => {
           if (await ask({ title: "게시물 삭제", danger: true, okText: "삭제",
             message: p.student_no + " " + p.author_name + " 님의 게시물(글 " + p.entries.length + "개, 댓글 " + (p.comments || []).length + "개)을 모두 삭제할까요? 되돌릴 수 없어요." }))
@@ -386,6 +402,7 @@
                   h("button", { class: "btn small", type: "button",
                     onclick: () => act("admin_set_comment_hidden", { p_comment_id: c.id, p_hidden: !c.hidden }, c.hidden ? "댓글을 다시 보이게 했어요." : "댓글을 숨겼어요.") },
                     c.hidden ? "보이기" : "숨기기"),
+                  h("button", { class: "btn small", type: "button", onclick: () => renameAuthor(c.student_no, c.author_name) }, "✏️ 별명"),
                   h("button", { class: "btn small danger", type: "button", onclick: async () => {
                     if (await ask({ title: "댓글 삭제", message: c.author_name + " 님의 댓글을 삭제할까요?", okText: "삭제", danger: true })) act("admin_delete_comment", { p_comment_id: c.id }, "댓글을 삭제했어요.");
                   } }, "댓글 삭제")),
@@ -774,19 +791,23 @@
   }));
 
   // 카카오 책 검색 (학생 화면과 같은 Supabase 함수)
+  async function searchBooks(q) {
+    const key = cfg.SUPABASE_ANON_KEY;
+    const headers = { apikey: key };
+    if (key.startsWith("eyJ")) headers.Authorization = "Bearer " + key;
+    const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/" + (cfg.BOOK_SEARCH_FUNCTION || "book-search") + "?q=" + encodeURIComponent(q), { headers });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.books) throw new Error(body.error || "책 검색을 쓸 수 없어요 (" + res.status + ")");
+    return body.books;
+  }
   $("#recFind").addEventListener("click", async () => {
     const q = rf.title.value.trim();
     if (q.length < 2) return toast("제목을 두 글자 이상 넣어 주세요.", true);
     const found = $("#recFound");
     try {
-      const key = cfg.SUPABASE_ANON_KEY;
-      const headers = { apikey: key };
-      if (key.startsWith("eyJ")) headers.Authorization = "Bearer " + key;
-      const res = await fetch(cfg.SUPABASE_URL.replace(/\/$/, "") + "/functions/v1/" + (cfg.BOOK_SEARCH_FUNCTION || "book-search") + "?q=" + encodeURIComponent(q), { headers });
-      const body = await res.json();
-      if (!res.ok || !body.books) throw new Error(body.error || "책 검색을 쓸 수 없어요 (" + res.status + ")");
-      if (!body.books.length) throw new Error("검색 결과가 없어요. 직접 입력해 주세요.");
-      found.replaceChildren(...body.books.slice(0, 6).map((b) => h("li", null,
+      const books = await searchBooks(q);
+      if (!books.length) throw new Error("검색 결과가 없어요. 직접 입력해 주세요.");
+      found.replaceChildren(...books.slice(0, 6).map((b) => h("li", null,
         h("button", { type: "button", onclick: () => {
           rf.title.value = String(b.title || "").replace(/\s*\(.*?\)\s*$/, "").trim();
           rf.author.value = (b.authors || []).join(", ");
@@ -866,6 +887,116 @@
         + (skipped ? " (" + skipped + "권은 덧붙일 것이 없거나 빈칸이라 건너뜀)" : ""));
       loadRec();
     } catch (ex) { toast(ex.message, true); }
+  });
+
+  // 같은 책 알아보기 (서버의 _book_key 와 같은 규칙: 괄호 안 글·띄어쓰기·문장부호를 빼고 비교)
+  const bookKey = (s) => String(s || "").toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g, "").replace(/[^0-9a-z가-힣ㄱ-ㅎ]/g, "");
+  const authorKey = (s) => bookKey(String(s || "").split(/\s*(?:,|\/|;|&| 외| 등)\s*/)[0]).replace(/(지음|옮김|엮음|편저|지은이|글|그림|저|역|편)$/, "");
+  const sameAuthor = (a, b) => { const x = authorKey(a), y = authorKey(b); return x === y || (x && y && (x.includes(y) || y.includes(x))); };
+
+  // ---------- 중복 찾기 · 합치기 ----------
+  const dupBox = $("#recDup");
+  // 남길 책: 표지·출판사·추천 이유 같은 정보가 많은 책, 같으면 먼저 등록한 책
+  const richness = (b) => ["thumbnail", "publisher", "pub_year", "note", "link", "category"].filter((k) => b[k]).length;
+  async function findDups() {
+    try {
+      const groups = await rpc("admin_find_dup_recommended", { p_pw: pw });
+      if (!groups.length) {
+        dupBox.replaceChildren(h("p", { class: "hint" }, "✅ 중복된 책이 없어요."));
+        dupBox.hidden = false;
+        return;
+      }
+      const safe = groups.filter((g) => g.same_author);
+      const row = (g, i) => {
+        const keep = [...g.books].sort((a, b) => richness(b) - richness(a) || a.id - b.id)[0];
+        const name = "dupKeep" + i;
+        return h("div", { class: "dup-group" + (g.same_author ? "" : " warn") },
+          g.same_author ? null : h("p", { class: "hint" }, "⚠️ 제목은 같지만 저자가 달라요. 다른 책일 수 있으니 확인 후 합치세요."),
+          ...g.books.map((b) => h("label", { class: "dup-book" },
+            h("input", { type: "radio", name, value: b.id, checked: b.id === keep.id }),
+            h("span", null, h("b", null, b.title), " · " + b.author,
+              h("small", null, [b.publisher, b.category, LEVELS[b.level], b.source].filter(Boolean).join(" · "))))),
+          h("button", { class: "btn small primary", type: "button", onclick: async () => {
+            const keepId = Number(dupBox.querySelector("input[name=" + name + "]:checked").value);
+            try {
+              await rpc("admin_merge_recommended", { p_pw: pw, p_keep: keepId, p_ids: g.books.map((b) => b.id) });
+              toast("『" + g.books[0].title + "』을(를) 한 권으로 합쳤어요.");
+              await loadRec();
+              findDups();
+            } catch (e) { toast(e.message, true); }
+          } }, "고른 책 하나로 합치기"));
+      };
+      dupBox.replaceChildren(
+        h("div", { class: "dup-head" },
+          h("b", null, "제목이 같은 책 " + groups.length + "묶음"),
+          safe.length ? h("button", { class: "btn small", type: "button", onclick: async () => {
+            if (!(await ask({ title: "🧹 중복 한꺼번에 합치기", okText: "합치기",
+              message: "제목과 저자가 같은 " + safe.length + "묶음을 각각 정보가 가장 많은 책 하나로 합칠까요? 출처·추천 이유는 이어 붙고 나머지는 지워져요." }))) return;
+            try {
+              for (const g of safe) {
+                const keep = [...g.books].sort((a, b) => richness(b) - richness(a) || a.id - b.id)[0];
+                await rpc("admin_merge_recommended", { p_pw: pw, p_keep: keep.id, p_ids: g.books.map((b) => b.id) });
+              }
+              toast(safe.length + "묶음을 합쳤어요.");
+              await loadRec();
+              findDups();
+            } catch (e) { toast(e.message, true); }
+          } }, "저자도 같은 " + safe.length + "묶음 한꺼번에 합치기") : null,
+          h("button", { class: "btn small", type: "button", onclick: () => { dupBox.hidden = true; } }, "닫기")),
+        ...groups.map(row));
+      dupBox.hidden = false;
+    } catch (e) { toast(e.message, true); }
+  }
+  $("#recDupBtn").addEventListener("click", findDups);
+
+  // ---------- 표지 자동 채우기 ----------
+  let coverRunning = false;
+  $("#recCoverBtn").addEventListener("click", async () => {
+    if (coverRunning) return;
+    const todo = recBooks.filter((b) => !b.thumbnail);
+    if (!todo.length) return toast("모든 책에 표지가 있어요.");
+    if (!(await ask({ title: "🖼 표지 자동 채우기", okText: "시작",
+      message: "표지가 없는 " + todo.length + "권을 카카오 책 검색으로 찾아요. 제목과 저자가 맞는 책만 넣고, 몇 분 걸릴 수 있어요. 이 창을 닫지 마세요." }))) return;
+    coverRunning = true;
+    const btn = $("#recCoverBtn"), hint = $("#recCoverHint");
+    btn.disabled = true;
+    let done = 0, found = 0, pending = [];
+    const flush = async () => {
+      if (!pending.length) return;
+      const batch = pending; pending = [];
+      await rpc("admin_set_rec_covers", { p_pw: pw, p_covers: batch });
+    };
+    try {
+      let i = 0;
+      const worker = async () => {
+        while (i < todo.length) {
+          const b = todo[i++];
+          try {
+            const hits = await searchBooks(b.title.slice(0, 50));
+            const hit = hits.find((x) => x.thumbnail && bookKey(String(x.title).replace(/\s*[:-].*$/, "")) === bookKey(b.title.replace(/\s*[:-].*$/, ""))
+              && (x.authors || []).some((a) => sameAuthor(a, b.author)))
+              || hits.find((x) => x.thumbnail && bookKey(x.title).startsWith(bookKey(b.title)) && (x.authors || []).some((a) => sameAuthor(a, b.author)));
+            if (hit) { pending.push({ id: b.id, isbn: hit.isbn, thumbnail: hit.thumbnail }); found++; }
+          } catch (e) {
+            if (/NO_KEY|FORBIDDEN|404|쓸 수 없어요/.test(e.message)) throw e;
+          }
+          done++;
+          hint.textContent = "찾는 중… " + done + " / " + todo.length + "권 (표지 " + found + "권 찾음)";
+          if (pending.length >= 50) await flush();
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      await flush();
+      toast(todo.length + "권 중 " + found + "권의 표지를 넣었어요." + (found < todo.length ? " 못 찾은 책은 [고치기] → [🔎 찾기]로 넣어 주세요." : ""));
+    } catch (e) {
+      await flush().catch(() => {});
+      toast("표지 찾기를 멈췄어요: " + e.message, true);
+    } finally {
+      coverRunning = false;
+      btn.disabled = false;
+      hint.textContent = "표지가 없는 책을 카카오 책 검색으로 찾아 넣어요. 제목·저자가 맞는 책만 넣어요.";
+      loadRec();
+    }
   });
 
   // ---------- 도배 정리 · 작업 기록 ----------
