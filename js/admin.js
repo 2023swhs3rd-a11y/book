@@ -2,8 +2,12 @@
 (function () {
   const { cfg, COLORS, CATEGORIES, SCHEMA_VERSION, ERROR_TEXT, isConfigured, rpc, fmtDate, h, toast, ask } = window.Board;
   const BACKUP_DAYS = 14;   // 이보다 오래 백업하지 않으면 알림
+  // 외부 도구는 버전을 고정하고 파일 지문(integrity)을 확인합니다. CDN 의 파일이 바뀌면 브라우저가 실행하지 않습니다.
+  // 버전을 바꿀 때는 지문도 함께 바꿔야 합니다(README 의 '보안' 참고).
   const XLSX_SRC = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+  const XLSX_SRI = "sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw";
   const QR_SRC = "https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js";
+  const QR_SRI = "sha384-8FWZA6BGMXhsfO+BLtrJK0We6gg5o1JyO8xQm6peWDEUs17ACA5ziE/NIAkl9z2k";
   const PW_KEY = "board-admin-pw";
 
   const $ = (sel) => document.querySelector(sel);
@@ -277,10 +281,10 @@
   }
 
   // ---------- QR 포스터 ----------
-  function loadScript(src, name) {
+  function loadScript(src, name, integrity) {
     if (window[name]) return Promise.resolve(window[name]);
     return new Promise((resolve, reject) => {
-      const s = h("script", { src });
+      const s = h("script", { src, integrity, crossorigin: "anonymous" });
       s.onload = () => resolve(window[name]);
       s.onerror = () => reject(new Error("도구를 불러오지 못했어요. 인터넷 연결을 확인해 주세요."));
       document.head.append(s);
@@ -289,7 +293,7 @@
 
   $("#qrBtn").addEventListener("click", async () => {
     try {
-      const qrcode = await loadScript(QR_SRC, "qrcode");
+      const qrcode = await loadScript(QR_SRC, "qrcode", QR_SRI);
       const url = new URL("./", location.href).href;
       const qr = qrcode(0, "M");
       qr.addData(url);
@@ -544,7 +548,7 @@
   function loadXlsx() {
     if (window.XLSX) return Promise.resolve(window.XLSX);
     return new Promise((resolve, reject) => {
-      const s = h("script", { src: XLSX_SRC });
+      const s = h("script", { src: XLSX_SRC, integrity: XLSX_SRI, crossorigin: "anonymous" });
       s.onload = () => resolve(window.XLSX);
       s.onerror = () => reject(new Error("엑셀 도구를 불러오지 못했어요. CSV 를 이용해 주세요."));
       document.head.append(s);

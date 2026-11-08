@@ -75,6 +75,8 @@ create table if not exists public.reports (
   reason      text check (reason is null or char_length(reason) <= 100),
   created_at  timestamptz not null default now()
 );
+create index if not exists post_likes_created_at_idx on public.post_likes(created_at);
+create index if not exists reports_created_at_idx on public.reports(created_at);
 create unique index if not exists reports_once_idx
   on public.reports (post_id, coalesce(comment_id, 0), device);
 alter table public.reports enable row level security;
@@ -628,6 +630,10 @@ begin
   end if;
   delete from public.post_likes where post_id = p_post_id and device = p_device;
   liked := not found;
+  -- [15차] 기기 표시를 바꿔 가며 공감을 부풀리거나 DB 를 채우지 못하게, 게시판 전체로 1분에 공감 300개까지만 받습니다.
+  if liked and (select count(*) from public.post_likes where created_at > now() - interval '1 minute') >= 300 then
+    return json_build_object('error', 'BUSY');
+  end if;
   if liked then
     insert into public.post_likes (post_id, device) values (p_post_id, p_device);
   end if;
@@ -642,6 +648,7 @@ returns json language plpgsql security definer
 set search_path = public as $$
 declare
   auto_hide constant int := 3;
+  auto_hide_per_hour constant int := 10;
 begin
   if not _check_device(p_device) then return json_build_object('error', 'MISSING_FIELD'); end if;
   if not exists (select 1 from public.posts where id = p_post_id and not hidden and season is null)
@@ -653,9 +660,20 @@ begin
        where device = p_device and created_at > now() - interval '1 hour') >= 20 then
     return json_build_object('error', 'TOO_MANY_REPORTS');
   end if;
+  -- [15차] 기기 표시는 화면이 만든 임의의 값이라 스크립트로 얼마든지 바꿀 수 있습니다.
+  -- 그래서 게시판 전체로도 1분에 신고 30건까지만 받습니다.
+  if (select count(*) from public.reports where created_at > now() - interval '1 minute') >= 30 then
+    return json_build_object('error', 'BUSY');
+  end if;
   insert into public.reports (post_id, comment_id, device, reason)
   values (p_post_id, p_comment_id, p_device, _clean(p_reason, 100))
   on conflict do nothing;
+  -- [15차] 가짜 기기 표시로 신고를 3건씩 채워 글을 한꺼번에 가리는 일을 막습니다.
+  -- 자동 숨김은 한 시간에 10건까지만 하고, 그 뒤 신고는 쌓아 두었다가 관리자가 '신고됨'에서 확인합니다.
+  if (select count(*) from public.admin_log
+       where action = '자동 숨김' and created_at > now() - interval '1 hour') >= auto_hide_per_hour then
+    return json_build_object('ok', true);
+  end if;
   if p_comment_id is null then
     if (select count(*) from public.reports where post_id = p_post_id and comment_id is null) >= auto_hide then
       update public.posts set hidden = true, auto_hidden = true
@@ -803,7 +821,7 @@ end $$;
 -- DB 구조의 버전. schema.sql 을 바꿀 때마다 1씩 올리고 js/common.js 의 SCHEMA_VERSION 도 같이 올립니다.
 -- 화면은 이 값이 더 작으면 "schema.sql 을 다시 실행해 주세요" 라고 알려 줍니다.
 create or replace function public.schema_version()
-returns int language sql immutable as $$ select 14 $$;
+returns int language sql immutable as $$ select 15 $$;
 
 -- 게시판 맨 위 공지와 이달의 주제 (학생 화면에서 읽음)
 create or replace function public.get_settings()

@@ -2,6 +2,9 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
+  <!-- 보안: 이 페이지가 불러올 수 있는 곳을 제한합니다. Supabase 가 아닌 다른 서버나 새 외부 스크립트를 쓰게 되면 여기에도 추가하세요. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'self'; script-src 'self' https://cdn.jsdelivr.net">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex">
   <title>관리자 · 봉일천고 독서나눔 릴레이</title>
@@ -9,8 +12,8 @@
   <link rel="icon" href="img/favicon-32.png" sizes="32x32" type="image/png">
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <link rel="stylesheet" href="/assets/site.css?v=1"><!-- 진로진학부 사이트 공통: Pretendard 글꼴·맨 위 경로 줄·바닥글 (2023swhs3rd-a11y.github.io 저장소) -->
-  <link rel="stylesheet" href="css/style.css?v=20261106b">
-  <link rel="stylesheet" href="css/admin.css?v=20261106b">
+  <link rel="stylesheet" href="css/style.css?v=20261108a">
+  <link rel="stylesheet" href="css/admin.css?v=20261108a">
 </head>
 <body class="admin-page">
   <header class="topbar">
@@ -266,8 +269,8 @@
   <!-- 인쇄용 학생별 독서 기록 카드 -->
   <section id="cards" class="cards" aria-hidden="true"></section>
 
-  <script src="js/config.js?v=20261106b"></script>
-  <script src="js/common.js?v=20261106b"></script>
-  <script src="js/admin.js?v=20261106b"></script>
+  <script src="js/config.js?v=20261108a"></script>
+  <script src="js/common.js?v=20261108a"></script>
+  <script src="js/admin.js?v=20261108a"></script>
 </body>
 </html>
